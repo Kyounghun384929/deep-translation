@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>DeepTranslation</AssemblyName>
+    <RootNamespace>DeepTranslation</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Company>DeepTranslation</Company>
+    <Product>Deep Translation</Product>
+    <Description>LM Studio 로컬 LLM 기반 번역기</Description>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- DPI는 app.manifest(PerMonitorV2)로 설정 — WinForms 분석기 경고 억제 -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WPF의 System.Windows와 충돌하는 WinForms 암시적 using 제거 (트레이 아이콘은 별칭으로 사용) -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+</Project>

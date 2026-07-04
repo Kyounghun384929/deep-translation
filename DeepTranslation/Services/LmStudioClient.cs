@@ -1,0 +1,189 @@
+using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace DeepTranslation.Services;
+
+public class LmStudioException : Exception
+{
+    public LmStudioException(string message) : base(message) { }
+    public LmStudioException(string message, Exception inner) : base(message, inner) { }
+}
+
+/// <summary>LM Studio의 OpenAI 호환 로컬 서버와 통신하는 클라이언트.</summary>
+public sealed class LmStudioClient
+{
+    private static readonly HttpClient Http = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+
+    public static string NormalizeBaseUrl(string? url)
+    {
+        url = (url ?? "").Trim();
+        if (url.Length == 0) url = "http://localhost:1234";
+        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            url = "http://" + url;
+        return url.TrimEnd('/');
+    }
+
+    /// <summary>
+    /// 사용 가능한 채팅 모델 목록. LM Studio 전용 엔드포인트(/api/v0/models)로 로드 상태를
+    /// 확인해 이미 로드된 모델을 앞에 두고, 실패하면 표준 /v1/models로 대체한다.
+    /// </summary>
+    public async Task<List<string>> GetModelsAsync(string baseUrl, CancellationToken ct)
+    {
+        string root = NormalizeBaseUrl(baseUrl);
+
+        try
+        {
+            var list = await GetModelsV0Async(root, ct);
+            if (list.Count > 0) return list;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch
+        {
+            // 구버전 LM Studio에는 /api/v0/models가 없음 — 아래 표준 엔드포인트로 대체
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+        string json;
+        try
+        {
+            json = await Http.GetStringAsync($"{root}/v1/models", cts.Token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            throw new LmStudioException(ConnectionHelp(root), ex);
+        }
+
+        var result = new List<string>();
+        if (JsonNode.Parse(json)?["data"] is JsonArray data)
+        {
+            foreach (var item in data)
+            {
+                var id = item?["id"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(id) && !id.Contains("embed", StringComparison.OrdinalIgnoreCase))
+                    result.Add(id);
+            }
+        }
+        return result;
+    }
+
+    private static async Task<List<string>> GetModelsV0Async(string root, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+        string json = await Http.GetStringAsync($"{root}/api/v0/models", cts.Token);
+
+        var loaded = new List<string>();
+        var others = new List<string>();
+        if (JsonNode.Parse(json)?["data"] is JsonArray data)
+        {
+            foreach (var item in data)
+            {
+                var id = item?["id"]?.GetValue<string>();
+                var type = item?["type"]?.GetValue<string>() ?? "";
+                var state = item?["state"]?.GetValue<string>() ?? "";
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                if (type is not ("llm" or "vlm")) continue; // 임베딩 모델 제외
+                if (state == "loaded") loaded.Add(id); else others.Add(id);
+            }
+        }
+        loaded.AddRange(others);
+        return loaded;
+    }
+
+    /// <summary>스트리밍 채팅 완성 요청. 토큰이 도착할 때마다 onDelta를 호출한다.</summary>
+    public async Task StreamChatAsync(string baseUrl, string model, string systemPrompt, string userText,
+        double temperature, Action<string> onDelta, CancellationToken ct)
+    {
+        string root = NormalizeBaseUrl(baseUrl);
+        var payload = new JsonObject
+        {
+            ["model"] = model,
+            ["messages"] = new JsonArray(
+                new JsonObject { ["role"] = "system", ["content"] = systemPrompt },
+                new JsonObject { ["role"] = "user", ["content"] = userText }),
+            ["temperature"] = temperature,
+            ["stream"] = true
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{root}/v1/chat/completions")
+        {
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json")
+        };
+
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new LmStudioException(ConnectionHelp(root), ex);
+        }
+
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+            {
+                string body = "";
+                try { body = await resp.Content.ReadAsStringAsync(ct); } catch { }
+                throw new LmStudioException($"LM Studio 서버 오류 (HTTP {(int)resp.StatusCode})\n{ExtractErrorMessage(body)}");
+            }
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream);
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                var line = await reader.ReadLineAsync(ct);
+                if (line == null) break;
+                if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+                var data = line[5..].Trim();
+                if (data == "[DONE]") break;
+                try
+                {
+                    var node = JsonNode.Parse(data);
+                    if (node?["error"] is { } err)
+                    {
+                        string msg = err is JsonValue v && v.TryGetValue<string>(out var s)
+                            ? s : err["message"]?.GetValue<string>() ?? err.ToJsonString();
+                        throw new LmStudioException("LM Studio 오류: " + msg);
+                    }
+                    var delta = node?["choices"]?[0]?["delta"]?["content"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(delta)) onDelta(delta);
+                }
+                catch (JsonException)
+                {
+                    // 잘린 청크는 무시
+                }
+            }
+        }
+    }
+
+    private static string ExtractErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(응답 본문 없음)";
+        try
+        {
+            var err = JsonNode.Parse(body)?["error"];
+            if (err is JsonValue v && v.TryGetValue<string>(out var s)) return s;
+            var msg = err?["message"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(msg)) return msg;
+        }
+        catch
+        {
+            // JSON이 아니면 원문 일부를 그대로 표시
+        }
+        return body.Length > 300 ? body[..300] : body;
+    }
+
+    private static string ConnectionHelp(string baseUrl) =>
+        $"LM Studio 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
+        "1. LM Studio를 실행하세요.\n" +
+        "2. 개발자(Developer) 탭에서 서버를 시작하세요 (Status: Running).\n" +
+        "3. 채팅용 모델을 하나 로드하세요.";
+}

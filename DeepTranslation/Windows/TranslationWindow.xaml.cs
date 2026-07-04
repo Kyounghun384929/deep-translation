@@ -1,0 +1,236 @@
+using System.Diagnostics;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using DeepTranslation.Services;
+using WinForms = System.Windows.Forms;
+
+namespace DeepTranslation.Windows;
+
+public partial class TranslationWindow : Window
+{
+    private readonly TranslationService _service = new();
+    private readonly DispatcherTimer _debounce;
+    private CancellationTokenSource? _cts;
+    private bool _suppressTextChanged;
+    private bool _holdOpen;     // 설정 창이 떠 있는 동안 포커스를 잃어도 닫지 않음
+    private bool _forceClosing;
+
+    public TranslationWindow()
+    {
+        InitializeComponent();
+        _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+        _debounce.Tick += (s, e) =>
+        {
+            _debounce.Stop();
+            _ = TranslateAsync();
+        };
+    }
+
+    /// <summary>단축키로 호출 — 원문을 채우고 즉시 번역한다.</summary>
+    public void ShowAndTranslate(string text)
+    {
+        _suppressTextChanged = true;
+        SourceBox.Text = text;
+        _suppressTextChanged = false;
+        _debounce.Stop();
+        Reposition();
+        ShowActivateTop();
+        _ = TranslateAsync();
+    }
+
+    /// <summary>트레이 메뉴에서 호출 — 직접 입력용으로 창만 연다.</summary>
+    public void ShowManual()
+    {
+        if (!IsVisible) Reposition();
+        ShowActivateTop();
+        SourceBox.Focus();
+    }
+
+    private void ShowActivateTop()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+    }
+
+    /// <summary>마우스 커서가 있는 모니터의 작업 영역 안에 창을 배치한다.</summary>
+    private void Reposition()
+    {
+        var p = WinForms.Cursor.Position;
+        var area = WinForms.Screen.FromPoint(p).WorkingArea;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        double w = Width * dpi.DpiScaleX;
+        double h = Height * dpi.DpiScaleY;
+
+        double left, top;
+        if (App.Settings.PopupNearCursor)
+        {
+            left = p.X + 18;
+            top = p.Y + 18;
+        }
+        else
+        {
+            left = area.Left + (area.Width - w) / 2;
+            top = area.Top + (area.Height - h) / 2;
+        }
+
+        if (left + w > area.Right - 8) left = area.Right - w - 8;
+        if (top + h > area.Bottom - 8) top = area.Bottom - h - 8;
+        left = Math.Max(area.Left + 8, left);
+        top = Math.Max(area.Top + 8, top);
+
+        Left = left / dpi.DpiScaleX;
+        Top = top / dpi.DpiScaleY;
+    }
+
+    private async Task TranslateAsync()
+    {
+        _cts?.Cancel();
+        var cts = _cts = new CancellationTokenSource();
+
+        string text = SourceBox.Text.Trim();
+        OutputBox.Text = "";
+        ModelLabel.Text = "";
+
+        if (text.Length == 0)
+        {
+            TargetLabel.Text = App.Settings.TargetLanguage;
+            SetStatus("번역할 텍스트가 없습니다. 원문을 입력해 보세요.", error: false);
+            return;
+        }
+
+        TargetLabel.Text = LanguageMaps.ResolveTarget(App.Settings, text).Display;
+        SetStatus("번역 중…", error: false);
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            var result = await _service.TranslateAsync(App.Settings, text,
+                visible =>
+                {
+                    if (cts.IsCancellationRequested) return;
+                    OutputBox.Text = visible;
+                    OutputBox.ScrollToEnd();
+                },
+                cts.Token);
+
+            if (cts.IsCancellationRequested) return;
+            ModelLabel.Text = result.Model;
+            SetStatus($"완료 · {sw.Elapsed.TotalSeconds:0.0}초", error: false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 새 번역 요청이나 창 닫힘으로 인한 취소 — 무시
+        }
+        catch (LmStudioException ex)
+        {
+            if (cts.IsCancellationRequested) return;
+            OutputBox.Text = ex.Message;
+            SetStatus("오류 — LM Studio 상태를 확인하세요", error: true);
+        }
+        catch (Exception ex)
+        {
+            if (cts.IsCancellationRequested) return;
+            OutputBox.Text = ex.Message;
+            SetStatus("예기치 않은 오류가 발생했습니다", error: true);
+        }
+    }
+
+    private void SetStatus(string message, bool error)
+    {
+        StatusText.Text = message;
+        StatusText.Foreground = (Brush)FindResource(error ? "ErrorBrush" : "SubTextBrush");
+    }
+
+    private void HideAndCancel()
+    {
+        _cts?.Cancel();
+        _debounce.Stop();
+        Hide();
+    }
+
+    public void ForceClose()
+    {
+        _forceClosing = true;
+        Close();
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_forceClosing)
+        {
+            e.Cancel = true; // X로 닫아도 프로세스는 살아있고 창만 숨긴다
+            HideAndCancel();
+            return;
+        }
+        base.OnClosing(e);
+    }
+
+    // ---- 이벤트 핸들러 ----
+
+    private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed) DragMove();
+    }
+
+    private void Close_Click(object sender, RoutedEventArgs e) => HideAndCancel();
+
+    private void Retranslate_Click(object sender, RoutedEventArgs e)
+    {
+        _debounce.Stop();
+        _ = TranslateAsync();
+    }
+
+    private void Copy_Click(object sender, RoutedEventArgs e)
+    {
+        if (OutputBox.Text.Length == 0) return;
+        try
+        {
+            Clipboard.SetText(OutputBox.Text);
+            SetStatus("번역문을 클립보드에 복사했습니다", error: false);
+        }
+        catch
+        {
+            SetStatus("클립보드 접근에 실패했습니다. 다시 시도하세요.", error: true);
+        }
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        _holdOpen = true;
+        try { App.Instance.ShowSettingsDialog(this); }
+        finally { _holdOpen = false; }
+    }
+
+    private void SourceBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressTextChanged) return;
+        _debounce.Stop();
+        _debounce.Start();
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            HideAndCancel();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            _debounce.Stop();
+            _ = TranslateAsync();
+            e.Handled = true;
+        }
+    }
+
+    private void Window_Deactivated(object? sender, EventArgs e)
+    {
+        if (_holdOpen || PinToggle.IsChecked == true || !App.Settings.CloseOnFocusLoss) return;
+        HideAndCancel();
+    }
+}
