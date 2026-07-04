@@ -48,7 +48,8 @@
             <TextBlock Text="원문 · 자동 감지" FontSize="12"
                        Foreground="{StaticResource SubTextBrush}" VerticalAlignment="Center"/>
             <Button Style="{StaticResource SubtleButton}" Content="다시 번역"
-                    HorizontalAlignment="Right" ToolTip="Ctrl+Enter" Click="Retranslate_Click"/>
+                    HorizontalAlignment="Right" ToolTip="캐시를 무시하고 새로 생성 (Ctrl+Enter)"
+                    Click="Retranslate_Click"/>
         </Grid>
         <TextBox x:Name="SourceBox" Grid.Row="2" Style="{StaticResource DarkTextBox}"
                  TextChanged="SourceBox_TextChanged"/>

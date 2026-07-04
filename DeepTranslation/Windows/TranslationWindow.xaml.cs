@@ -18,6 +18,8 @@ public partial class TranslationWindow : Window
     private bool _suppressTargetChanged;
     private bool _holdOpen;     // 설정 창이 떠 있는 동안 포커스를 잃어도 닫지 않음
     private bool _forceClosing;
+    private bool _inFlight;                  // LLM 요청 진행 중 여부
+    private string _inFlightSignature = "";  // 진행 중인 요청 식별자 (중복 재시작 방지)
 
     public TranslationWindow()
     {
@@ -106,12 +108,18 @@ public partial class TranslationWindow : Window
         Top = top / dpi.DpiScaleY;
     }
 
-    private async Task TranslateAsync()
+    private async Task TranslateAsync(bool force = false)
     {
+        string text = SourceBox.Text.Trim();
+        string signature = string.Join((char)31,
+            App.Settings.ServerUrl, App.Settings.Model, App.Settings.TargetLanguage, text);
+
+        // 같은 내용의 요청이 이미 진행 중이면 재시작하지 않는다 (불필요한 LLM 재호출 방지)
+        if (!force && _inFlight && signature == _inFlightSignature) return;
+
         _cts?.Cancel();
         var cts = _cts = new CancellationTokenSource();
 
-        string text = SourceBox.Text.Trim();
         OutputBox.Text = "";
         ModelLabel.Text = "";
         SyncTargetCombo();
@@ -122,6 +130,8 @@ public partial class TranslationWindow : Window
             return;
         }
 
+        _inFlight = true;
+        _inFlightSignature = signature;
         SetStatus("번역 중…", error: false);
         var sw = Stopwatch.StartNew();
 
@@ -134,14 +144,17 @@ public partial class TranslationWindow : Window
                     OutputBox.Text = visible;
                     OutputBox.ScrollToEnd();
                 },
-                cts.Token);
+                cts.Token,
+                bypassCache: force); // "다시 번역"은 캐시를 무시하고 새로 생성한다
 
             if (cts.IsCancellationRequested) return;
             ModelLabel.Text = result.Model;
             // 한국어 원문이라 보조 언어로 번역된 경우 상태 표시줄에 알려준다
             string fallbackNote = result.TargetDisplay != App.Settings.TargetLanguage
                 ? $" · 한국어 원문 → {result.TargetDisplay}" : "";
-            SetStatus($"완료 · {sw.Elapsed.TotalSeconds:0.0}초{fallbackNote}", error: false);
+            SetStatus(result.FromCache
+                ? $"완료 · 캐시{fallbackNote} — 새로 생성하려면 '다시 번역'"
+                : $"완료 · {sw.Elapsed.TotalSeconds:0.0}초{fallbackNote}", error: false);
         }
         catch (OperationCanceledException)
         {
@@ -158,6 +171,11 @@ public partial class TranslationWindow : Window
             if (cts.IsCancellationRequested) return;
             OutputBox.Text = ex.Message;
             SetStatus("예기치 않은 오류가 발생했습니다", error: true);
+        }
+        finally
+        {
+            // 더 새로운 요청이 시작됐다면 그 요청의 진행 상태를 건드리지 않는다
+            if (ReferenceEquals(_cts, cts)) _inFlight = false;
         }
     }
 
@@ -203,7 +221,7 @@ public partial class TranslationWindow : Window
     private void Retranslate_Click(object sender, RoutedEventArgs e)
     {
         _debounce.Stop();
-        _ = TranslateAsync();
+        _ = TranslateAsync(force: true); // 캐시를 무시하고 새로 생성
     }
 
     private void Copy_Click(object sender, RoutedEventArgs e)
@@ -255,7 +273,7 @@ public partial class TranslationWindow : Window
         else if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
             _debounce.Stop();
-            _ = TranslateAsync();
+            _ = TranslateAsync(force: true); // 캐시를 무시하고 새로 생성
             e.Handled = true;
         }
     }

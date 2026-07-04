@@ -237,6 +237,26 @@ public partial class App : Application
                 Out($"gesture: '{g}' -> {(parsed == null ? "null" : $"{parsed} vk=0x{parsed.VkCode:X2} valid={parsed.IsValid} copy={parsed.IsCopyGesture}")}");
             }
 
+            // LlmGuard 검증: 캐시 저장/조회
+            string key = LlmGuard.MakeKey("srv", "model-x", "Korean", 0.2, "hello");
+            LlmGuard.Store(key, "안녕", "model-x");
+            bool hit = LlmGuard.TryGet(key, out var cachedEntry);
+            bool miss = !LlmGuard.TryGet(LlmGuard.MakeKey("srv", "model-x", "Korean", 0.2, "different"), out _);
+            Out($"guard-cache: hit={hit} text='{cachedEntry.Text}' model={cachedEntry.Model} miss-on-other={miss}");
+
+            // LlmGuard 검증: 전역 단일 실행 (동시 요청이 겹치지 않아야 함)
+            int concurrent = 0, maxConcurrent = 0;
+            var tasks = Enumerable.Range(0, 3).Select(_ => LlmGuard.RunExclusiveAsync(async () =>
+            {
+                int now = Interlocked.Increment(ref concurrent);
+                maxConcurrent = Math.Max(maxConcurrent, now);
+                await Task.Delay(80);
+                Interlocked.Decrement(ref concurrent);
+                return 0;
+            }, CancellationToken.None)).ToArray();
+            await Task.WhenAll(tasks);
+            Out($"guard-serialize: maxConcurrent={maxConcurrent} (1이어야 정상)");
+
             // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행
             if (args.Contains("--no-llm"))
             {
@@ -261,6 +281,15 @@ public partial class App : Application
                 Out($"target: {result.TargetDisplay}");
                 Out($"source: {text}");
                 Out($"translation: {last}");
+
+                // 동일 요청 재호출 — LLM을 다시 부르지 않고 캐시로 응답해야 한다
+                var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                var second = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None);
+                Out($"repeat-call: fromCache={second.FromCache} elapsed={sw2.ElapsedMilliseconds}ms (fromCache=True여야 정상)");
+
+                // bypassCache=true는 캐시를 무시하고 새로 생성해야 한다
+                var third = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None, bypassCache: true);
+                Out($"regen-call: fromCache={third.FromCache} (False여야 정상)");
             }
         }
         catch (Exception ex)
