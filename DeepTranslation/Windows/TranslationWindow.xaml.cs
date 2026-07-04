@@ -21,6 +21,7 @@ public partial class TranslationWindow : Window
     public TranslationWindow()
     {
         InitializeComponent();
+        StatusText.Text = $"텍스트를 선택하고 {App.HotkeyDisplayText} 누르세요";
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
         _debounce.Tick += (s, e) =>
         {

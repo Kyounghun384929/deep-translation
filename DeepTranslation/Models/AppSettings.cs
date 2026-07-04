@@ -17,6 +17,13 @@ public class AppSettings
     public string KoreanSourceTarget { get; set; } = "영어";
 
     public bool HotkeyEnabled { get; set; } = true;
+
+    /// <summary>번역 단축키 조합 (예: "Ctrl+C", "Alt+Q", "F9").</summary>
+    public string HotkeyGesture { get; set; } = "Ctrl+C";
+
+    /// <summary>true면 짧은 간격으로 두 번 눌러야 발동. Ctrl+C 조합은 항상 두 번 누르기.</summary>
+    public bool HotkeyDoublePress { get; set; } = true;
+
     public bool RunAtStartup { get; set; } = false;
     public bool PopupNearCursor { get; set; } = true;
     public bool CloseOnFocusLoss { get; set; } = true;

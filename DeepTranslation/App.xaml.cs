@@ -18,6 +18,10 @@ public partial class App : Application
     private WinForms.NotifyIcon? _tray;
     private KeyboardHookService? _hook;
     private TranslationWindow? _window;
+    private HotkeyGesture _gesture = HotkeyGesture.Default;
+
+    /// <summary>현재 단축키의 표시용 문자열 (예: "Ctrl+C 두 번", "Alt+Q").</summary>
+    public static string HotkeyDisplayText { get; private set; } = "Ctrl+C 두 번";
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -48,8 +52,9 @@ public partial class App : Application
         Settings = AppSettings.Load();
         SetupTray();
 
-        _hook = new KeyboardHookService { DoublePressWindowMs = Settings.DoublePressWindowMs };
-        _hook.CopyCopyPressed += OnCopyCopy;
+        _hook = new KeyboardHookService();
+        _hook.HotkeyTriggered += OnHotkey;
+        ConfigureHook();
         if (Settings.HotkeyEnabled) _hook.Start();
 
         // 첫 팝업이 즉시 뜨도록 번역 창을 미리 생성해 둔다 (표시는 하지 않음)
@@ -60,8 +65,33 @@ public partial class App : Application
         if (!e.Args.Contains("--autostart"))
         {
             _tray?.ShowBalloonTip(4000, "Deep Translation 실행 중",
-                "텍스트를 선택하고 Ctrl+C, C (빠르게 두 번)를 누르면 번역 창이 열립니다.",
+                $"텍스트를 선택하고 {HotkeyDisplayText} 누르면 번역 창이 열립니다.",
                 WinForms.ToolTipIcon.Info);
+        }
+    }
+
+    /// <summary>설정의 단축키 문자열을 훅에 반영하고 표시용 텍스트를 갱신한다.</summary>
+    private void ConfigureHook()
+    {
+        _gesture = HotkeyGesture.TryParse(Settings.HotkeyGesture) ?? HotkeyGesture.Default;
+        bool doublePress = Settings.HotkeyDoublePress || _gesture.IsCopyGesture;
+
+        if (_hook != null)
+        {
+            _hook.TriggerVkCode = _gesture.VkCode;
+            _hook.NeedCtrl = _gesture.Ctrl;
+            _hook.NeedAlt = _gesture.Alt;
+            _hook.NeedShift = _gesture.Shift;
+            _hook.NeedWin = _gesture.Win;
+            _hook.RequireDoublePress = doublePress;
+            _hook.DoublePressWindowMs = Settings.DoublePressWindowMs;
+        }
+
+        HotkeyDisplayText = doublePress ? $"{_gesture} 두 번" : _gesture.ToString();
+        if (_tray != null)
+        {
+            string text = $"Deep Translation — {HotkeyDisplayText}";
+            _tray.Text = text.Length > 63 ? text[..63] : text;
         }
     }
 
@@ -90,13 +120,23 @@ public partial class App : Application
         return new System.Drawing.Icon(sri.Stream);
     }
 
-    /// <summary>Ctrl+C, C 감지 시 호출 — 클립보드 텍스트를 읽어 번역 창을 띄운다.</summary>
-    private async void OnCopyCopy()
+    /// <summary>단축키 감지 시 호출 — 클립보드 텍스트를 읽어 번역 창을 띄운다.</summary>
+    private async void OnHotkey()
     {
-        // 우리 번역 창 안에서 누른 Ctrl+C, C는 무시 (번역문 복사 시 재번역 방지)
+        // 우리 번역 창 안에서 누른 단축키는 무시 (번역문 복사 시 재번역 방지)
         if (_window is { IsVisible: true, IsActive: true }) return;
 
-        await Task.Delay(250); // 두 번째 복사가 클립보드에 반영될 시간
+        if (_gesture.IsCopyGesture)
+        {
+            await Task.Delay(250); // 두 번째 복사가 클립보드에 반영될 시간
+        }
+        else
+        {
+            // Ctrl+C가 아닌 단축키는 복사가 일어나지 않았으므로 직접 복사 입력을 보낸다
+            InputSimulator.SendCopy();
+            await Task.Delay(350); // 대상 앱이 복사를 처리할 시간
+        }
+
         string text = await ReadClipboardTextAsync();
         ShowTranslationWindow(text, translate: true);
     }
@@ -132,13 +172,13 @@ public partial class App : Application
         win.ShowDialog();
     }
 
-    /// <summary>설정 저장 후 즉시 반영 (훅, 자동 시작).</summary>
+    /// <summary>설정 저장 후 즉시 반영 (단축키, 훅, 자동 시작).</summary>
     public void ApplySettings()
     {
         Settings.Save();
+        ConfigureHook();
         if (_hook != null)
         {
-            _hook.DoublePressWindowMs = Settings.DoublePressWindowMs;
             if (Settings.HotkeyEnabled && !_hook.IsRunning) _hook.Start();
             else if (!Settings.HotkeyEnabled && _hook.IsRunning) _hook.Stop();
         }
@@ -189,6 +229,13 @@ public partial class App : Application
             _ = new TranslationWindow();
             _ = new SettingsWindow();
             Out("ui: TranslationWindow / SettingsWindow OK");
+
+            // 단축키 파싱 검증
+            foreach (var g in new[] { "Ctrl+C", "Alt+Q", "Ctrl+Shift+T", "F9", "Q", "Shift+Q" })
+            {
+                var parsed = HotkeyGesture.TryParse(g);
+                Out($"gesture: '{g}' -> {(parsed == null ? "null" : $"{parsed} vk=0x{parsed.VkCode:X2} valid={parsed.IsValid} copy={parsed.IsCopyGesture}")}");
+            }
 
             string text = "Local LLMs make private, offline translation possible.";
             int idx = Array.IndexOf(args, "--selftest");
