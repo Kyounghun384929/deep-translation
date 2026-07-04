@@ -15,6 +15,7 @@ public partial class TranslationWindow : Window
     private readonly DispatcherTimer _debounce;
     private CancellationTokenSource? _cts;
     private bool _suppressTextChanged;
+    private bool _suppressTargetChanged;
     private bool _holdOpen;     // 설정 창이 떠 있는 동안 포커스를 잃어도 닫지 않음
     private bool _forceClosing;
 
@@ -22,12 +23,29 @@ public partial class TranslationWindow : Window
     {
         InitializeComponent();
         StatusText.Text = $"텍스트를 선택하고 {App.HotkeyDisplayText} 누르세요";
+
+        _suppressTargetChanged = true;
+        TargetCombo.ItemsSource = LanguageMaps.TargetChoices;
+        TargetCombo.SelectedItem = LanguageMaps.TargetChoices.Contains(App.Settings.TargetLanguage)
+            ? App.Settings.TargetLanguage : "한국어";
+        _suppressTargetChanged = false;
+
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
         _debounce.Tick += (s, e) =>
         {
             _debounce.Stop();
             _ = TranslateAsync();
         };
+    }
+
+    /// <summary>설정 창 등 다른 경로로 바뀐 대상 언어를 콤보박스에 반영한다.</summary>
+    private void SyncTargetCombo()
+    {
+        if (TargetCombo.SelectedItem as string == App.Settings.TargetLanguage) return;
+        _suppressTargetChanged = true;
+        TargetCombo.SelectedItem = LanguageMaps.TargetChoices.Contains(App.Settings.TargetLanguage)
+            ? App.Settings.TargetLanguage : "한국어";
+        _suppressTargetChanged = false;
     }
 
     /// <summary>단축키로 호출 — 원문을 채우고 즉시 번역한다.</summary>
@@ -96,15 +114,14 @@ public partial class TranslationWindow : Window
         string text = SourceBox.Text.Trim();
         OutputBox.Text = "";
         ModelLabel.Text = "";
+        SyncTargetCombo();
 
         if (text.Length == 0)
         {
-            TargetLabel.Text = App.Settings.TargetLanguage;
             SetStatus("번역할 텍스트가 없습니다. 원문을 입력해 보세요.", error: false);
             return;
         }
 
-        TargetLabel.Text = LanguageMaps.ResolveTarget(App.Settings, text).Display;
         SetStatus("번역 중…", error: false);
         var sw = Stopwatch.StartNew();
 
@@ -121,7 +138,10 @@ public partial class TranslationWindow : Window
 
             if (cts.IsCancellationRequested) return;
             ModelLabel.Text = result.Model;
-            SetStatus($"완료 · {sw.Elapsed.TotalSeconds:0.0}초", error: false);
+            // 한국어 원문이라 보조 언어로 번역된 경우 상태 표시줄에 알려준다
+            string fallbackNote = result.TargetDisplay != App.Settings.TargetLanguage
+                ? $" · 한국어 원문 → {result.TargetDisplay}" : "";
+            SetStatus($"완료 · {sw.Elapsed.TotalSeconds:0.0}초{fallbackNote}", error: false);
         }
         catch (OperationCanceledException)
         {
@@ -212,6 +232,17 @@ public partial class TranslationWindow : Window
         if (_suppressTextChanged) return;
         _debounce.Stop();
         _debounce.Start();
+    }
+
+    private void TargetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressTargetChanged || TargetCombo.SelectedItem is not string selected) return;
+        if (App.Settings.TargetLanguage == selected) return;
+
+        App.Settings.TargetLanguage = selected;
+        App.Settings.Save();
+        _debounce.Stop();
+        _ = TranslateAsync();
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)

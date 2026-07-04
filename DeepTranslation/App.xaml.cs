@@ -237,23 +237,31 @@ public partial class App : Application
                 Out($"gesture: '{g}' -> {(parsed == null ? "null" : $"{parsed} vk=0x{parsed.VkCode:X2} valid={parsed.IsValid} copy={parsed.IsCopyGesture}")}");
             }
 
-            string text = "Local LLMs make private, offline translation possible.";
-            int idx = Array.IndexOf(args, "--selftest");
-            if (idx >= 0 && idx + 1 < args.Length && !args[idx + 1].StartsWith("--"))
-                text = args[idx + 1];
+            // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행
+            if (args.Contains("--no-llm"))
+            {
+                Out("selftest done (LLM 호출 생략)");
+            }
+            else
+            {
+                string text = "Local LLMs make private, offline translation possible.";
+                int idx = Array.IndexOf(args, "--selftest");
+                if (idx >= 0 && idx + 1 < args.Length && !args[idx + 1].StartsWith("--"))
+                    text = args[idx + 1];
 
-            var client = new LmStudioClient();
-            Out($"server: {LmStudioClient.NormalizeBaseUrl(settings.ServerUrl)}");
-            var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None);
-            Out("models: " + string.Join(" | ", models));
+                var client = new LmStudioClient();
+                Out($"server: {LmStudioClient.NormalizeBaseUrl(settings.ServerUrl)}");
+                var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None);
+                Out("models: " + string.Join(" | ", models));
 
-            var service = new TranslationService();
-            string last = "";
-            var result = await service.TranslateAsync(settings, text, t => last = t, CancellationToken.None);
-            Out($"model-used: {result.Model}");
-            Out($"target: {result.TargetDisplay}");
-            Out($"source: {text}");
-            Out($"translation: {last}");
+                var service = new TranslationService();
+                string last = "";
+                var result = await service.TranslateAsync(settings, text, t => last = t, CancellationToken.None);
+                Out($"model-used: {result.Model}");
+                Out($"target: {result.TargetDisplay}");
+                Out($"source: {text}");
+                Out($"translation: {last}");
+            }
         }
         catch (Exception ex)
         {
