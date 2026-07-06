@@ -16,12 +16,17 @@ public partial class App : Application
 
     private Mutex? _mutex;
     private WinForms.NotifyIcon? _tray;
+    private WinForms.ToolStripMenuItem? _startupMenuItem;
     private KeyboardHookService? _hook;
     private TranslationWindow? _window;
     private HotkeyGesture _gesture = HotkeyGesture.Default;
 
     /// <summary>현재 단축키의 표시용 문자열 (예: "Ctrl+C 두 번", "Alt+Q").</summary>
     public static string HotkeyDisplayText { get; private set; } = "Ctrl+C 두 번";
+
+    // 클립보드 내용이 바뀔 때마다 증가하는 시퀀스 번호. 복사 완료를 폴링으로 즉시 감지하는 데 쓴다.
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -60,7 +65,15 @@ public partial class App : Application
         // 첫 팝업이 즉시 뜨도록 번역 창을 미리 생성해 둔다 (표시는 하지 않음)
         _window = new TranslationWindow();
 
+        // 설치 프로그램의 '자동 시작' 선택(레지스트리)을 설정에 먼저 반영한다.
+        // 이 단계가 없으면 첫 실행 시 기본값(false)이 설치 시 등록된 Run 값을 지워버린다.
+        if (!Settings.RunAtStartup && StartupManager.IsEnabled())
+        {
+            Settings.RunAtStartup = true;
+            Settings.Save();
+        }
         StartupManager.Sync(Settings.RunAtStartup);
+        UpdateTrayStartupCheck();
 
         if (!e.Args.Contains("--autostart"))
         {
@@ -108,6 +121,13 @@ public partial class App : Application
         menu.Items.Add("번역 창 열기", null, (s, e) => ShowTranslationWindow());
         menu.Items.Add("설정", null, (s, e) => ShowSettingsDialog());
         menu.Items.Add(new WinForms.ToolStripSeparator());
+        _startupMenuItem = new WinForms.ToolStripMenuItem("Windows 시작 시 자동 실행")
+        {
+            Checked = Settings.RunAtStartup
+        };
+        _startupMenuItem.Click += (s, e) => ToggleStartup();
+        menu.Items.Add(_startupMenuItem);
+        menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("종료", null, (s, e) => ExitApplication());
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (s, e) => ShowTranslationWindow();
@@ -126,19 +146,40 @@ public partial class App : Application
         // 우리 번역 창 안에서 누른 단축키는 무시 (번역문 복사 시 재번역 방지)
         if (_window is { IsVisible: true, IsActive: true }) return;
 
+        // 트리거 시점의 클립보드 시퀀스를 캡처해 두고, 복사로 값이 바뀌면 즉시 진행한다(고정 대기 제거).
+        uint startSeq = GetClipboardSequenceNumber();
+
+        int timeoutMs;
         if (_gesture.IsCopyGesture)
         {
-            await Task.Delay(250); // 두 번째 복사가 클립보드에 반영될 시간
+            // Ctrl+C 두 번: 첫 번째 C가 이미 복사했을 수 있으므로 타임아웃 시에도 그냥 클립보드를 읽고 진행한다.
+            timeoutMs = 300;
         }
         else
         {
             // Ctrl+C가 아닌 단축키는 복사가 일어나지 않았으므로 직접 복사 입력을 보낸다
             InputSimulator.SendCopy();
-            await Task.Delay(350); // 대상 앱이 복사를 처리할 시간
+            timeoutMs = 500;
         }
+
+        await WaitForClipboardChangeAsync(startSeq, timeoutMs);
 
         string text = await ReadClipboardTextAsync();
         ShowTranslationWindow(text, translate: true);
+    }
+
+    /// <summary>
+    /// 클립보드 시퀀스 번호가 startSeq에서 바뀔 때까지 짧은 간격으로 폴링한다.
+    /// 값이 바뀌면 즉시, 아니면 timeoutMs 후에 반환한다(타임아웃 시에도 호출부가 클립보드를 읽고 진행).
+    /// </summary>
+    private static async Task WaitForClipboardChangeAsync(uint startSeq, int timeoutMs)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if (GetClipboardSequenceNumber() != startSeq) return;
+            await Task.Delay(15);
+        }
     }
 
     private static async Task<string> ReadClipboardTextAsync()
@@ -183,6 +224,22 @@ public partial class App : Application
             else if (!Settings.HotkeyEnabled && _hook.IsRunning) _hook.Stop();
         }
         StartupManager.Sync(Settings.RunAtStartup);
+        UpdateTrayStartupCheck();
+    }
+
+    /// <summary>트레이 메뉴에서 자동 시작을 즉시 켜고 끈다.</summary>
+    private void ToggleStartup()
+    {
+        Settings.RunAtStartup = !Settings.RunAtStartup;
+        Settings.Save();
+        StartupManager.Sync(Settings.RunAtStartup);
+        UpdateTrayStartupCheck();
+    }
+
+    /// <summary>트레이 메뉴의 자동 시작 체크 표시를 현재 설정과 일치시킨다.</summary>
+    private void UpdateTrayStartupCheck()
+    {
+        if (_startupMenuItem != null) _startupMenuItem.Checked = Settings.RunAtStartup;
     }
 
     private void ExitApplication()
@@ -237,72 +294,13 @@ public partial class App : Application
                 Out($"gesture: '{g}' -> {(parsed == null ? "null" : $"{parsed} vk=0x{parsed.VkCode:X2} valid={parsed.IsValid} copy={parsed.IsCopyGesture}")}");
             }
 
-            // LlmGuard 검증: 캐시 저장/조회
-            string key = LlmGuard.MakeKey("srv", "model-x", "Korean", 0.2, "hello");
-            LlmGuard.Store(key, "안녕", "model-x");
+            // LlmGuard 검증: 캐시 저장/조회 (Language 필드 및 새 MakeKey 시그니처 포함)
+            string key = LlmGuard.MakeKey("srv", "model-x", "Korean", "English", "", 0.2, "hello");
+            LlmGuard.Store(key, "안녕", "model-x", "Korean");
             bool hit = LlmGuard.TryGet(key, out var cachedEntry);
-            bool miss = !LlmGuard.TryGet(LlmGuard.MakeKey("srv", "model-x", "Korean", 0.2, "different"), out _);
-            Out($"guard-cache: hit={hit} text='{cachedEntry.Text}' model={cachedEntry.Model} miss-on-other={miss}");
+            bool miss = !LlmGuard.TryGet(LlmGuard.MakeKey("srv", "model-x", "Korean", "English", "", 0.2, "different"), out _);
+            // 용어집이 키에 반영되는지 — 다른 용어집이면 miss여야 한다
+            bool glossaryMiss = !LlmGuard.TryGet(LlmGuard.MakeKey("srv", "model-x", "Korean", "English", "term=x", 0.2, "hello"), out _);
+            Out($"guard-cache: hit={hit} text='{cachedEntry.Text}' model={cachedEntry.Model} lang={cachedEntry.Language} miss-on-other={miss} glossary-key={glossaryMiss}");
 
-            // LlmGuard 검증: 전역 단일 실행 (동시 요청이 겹치지 않아야 함)
-            int concurrent = 0, maxConcurrent = 0;
-            var tasks = Enumerable.Range(0, 3).Select(_ => LlmGuard.RunExclusiveAsync(async () =>
-            {
-                int now = Interlocked.Increment(ref concurrent);
-                maxConcurrent = Math.Max(maxConcurrent, now);
-                await Task.Delay(80);
-                Interlocked.Decrement(ref concurrent);
-                return 0;
-            }, CancellationToken.None)).ToArray();
-            await Task.WhenAll(tasks);
-            Out($"guard-serialize: maxConcurrent={maxConcurrent} (1이어야 정상)");
-
-            // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행
-            if (args.Contains("--no-llm"))
-            {
-                Out("selftest done (LLM 호출 생략)");
-            }
-            else
-            {
-                string text = "Local LLMs make private, offline translation possible.";
-                int idx = Array.IndexOf(args, "--selftest");
-                if (idx >= 0 && idx + 1 < args.Length && !args[idx + 1].StartsWith("--"))
-                    text = args[idx + 1];
-
-                var client = new LmStudioClient();
-                Out($"server: {LmStudioClient.NormalizeBaseUrl(settings.ServerUrl)}");
-                var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None);
-                Out("models: " + string.Join(" | ", models));
-
-                var service = new TranslationService();
-                string last = "";
-                var result = await service.TranslateAsync(settings, text, t => last = t, CancellationToken.None);
-                Out($"model-used: {result.Model}");
-                Out($"target: {result.TargetDisplay}");
-                Out($"source: {text}");
-                Out($"translation: {last}");
-
-                // 동일 요청 재호출 — LLM을 다시 부르지 않고 캐시로 응답해야 한다
-                var sw2 = System.Diagnostics.Stopwatch.StartNew();
-                var second = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None);
-                Out($"repeat-call: fromCache={second.FromCache} elapsed={sw2.ElapsedMilliseconds}ms (fromCache=True여야 정상)");
-
-                // bypassCache=true는 캐시를 무시하고 새로 생성해야 한다
-                var third = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None, bypassCache: true);
-                Out($"regen-call: fromCache={third.FromCache} (False여야 정상)");
-            }
-        }
-        catch (Exception ex)
-        {
-            Out("SELFTEST FAILED: " + ex.Message);
-            exitCode = 1;
-        }
-
-        int outIdx = Array.IndexOf(args, "--out");
-        if (outIdx >= 0 && outIdx + 1 < args.Length)
-        {
-            try { File.WriteAllText(args[outIdx + 1], log.ToString()); } catch { }
-        }
-        Shutdown(exitCode);
-    }
-}
+            // LlmGuard 검증: 전역 단일 실행 (동시 요청이 겹치지 않아야 

@@ -17,6 +17,11 @@ public sealed class LmStudioClient
 {
     private static readonly HttpClient Http = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
 
+    // 모델 목록 캐시 (키: 정규화된 서버 URL). 자동 모드의 매 번역마다 게이트 안에서 재조회되는 비용을 줄인다.
+    private static readonly object ModelsCacheSync = new();
+    private static readonly Dictionary<string, (List<string> Models, long Tick)> ModelsCache = new();
+    private static readonly TimeSpan ModelsCacheTtl = TimeSpan.FromSeconds(30);
+
     public static string NormalizeBaseUrl(string? url)
     {
         url = (url ?? "").Trim();
@@ -30,11 +35,34 @@ public sealed class LmStudioClient
     /// <summary>
     /// 사용 가능한 채팅 모델 목록. LM Studio 전용 엔드포인트(/api/v0/models)로 로드 상태를
     /// 확인해 이미 로드된 모델을 앞에 두고, 실패하면 표준 /v1/models로 대체한다.
+    /// 30초 TTL 캐시로 자동 모드의 반복 조회를 줄인다. bypassCache=true면 캐시를 무시하고 새로 조회한다
+    /// (연결 테스트·새로고침처럼 최신 상태가 필요할 때).
     /// </summary>
-    public async Task<List<string>> GetModelsAsync(string baseUrl, CancellationToken ct)
+    public async Task<List<string>> GetModelsAsync(string baseUrl, CancellationToken ct, bool bypassCache = false)
     {
         string root = NormalizeBaseUrl(baseUrl);
 
+        if (!bypassCache)
+        {
+            lock (ModelsCacheSync)
+            {
+                if (ModelsCache.TryGetValue(root, out var cached) &&
+                    Environment.TickCount64 - cached.Tick <= ModelsCacheTtl.TotalMilliseconds)
+                    return new List<string>(cached.Models); // 호출부가 목록을 변형(재정렬)하므로 사본 반환
+            }
+        }
+
+        var result = await FetchModelsAsync(root, ct);
+
+        lock (ModelsCacheSync)
+        {
+            ModelsCache[root] = (new List<string>(result), Environment.TickCount64);
+        }
+        return result;
+    }
+
+    private async Task<List<string>> FetchModelsAsync(string root, CancellationToken ct)
+    {
         try
         {
             var list = await GetModelsV0Async(root, ct);
@@ -151,39 +179,4 @@ public sealed class LmStudioClient
                     {
                         string msg = err is JsonValue v && v.TryGetValue<string>(out var s)
                             ? s : err["message"]?.GetValue<string>() ?? err.ToJsonString();
-                        throw new LmStudioException("LM Studio 오류: " + msg);
-                    }
-                    var delta = node?["choices"]?[0]?["delta"]?["content"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(delta)) onDelta(delta);
-                }
-                catch (JsonException)
-                {
-                    // 잘린 청크는 무시
-                }
-            }
-        }
-    }
-
-    private static string ExtractErrorMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body)) return "(응답 본문 없음)";
-        try
-        {
-            var err = JsonNode.Parse(body)?["error"];
-            if (err is JsonValue v && v.TryGetValue<string>(out var s)) return s;
-            var msg = err?["message"]?.GetValue<string>();
-            if (!string.IsNullOrWhiteSpace(msg)) return msg;
-        }
-        catch
-        {
-            // JSON이 아니면 원문 일부를 그대로 표시
-        }
-        return body.Length > 300 ? body[..300] : body;
-    }
-
-    private static string ConnectionHelp(string baseUrl) =>
-        $"LM Studio 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
-        "1. LM Studio를 실행하세요.\n" +
-        "2. 개발자(Developer) 탭에서 서버를 시작하세요 (Status: Running).\n" +
-        "3. 채팅용 모델을 하나 로드하세요.";
-}
+                

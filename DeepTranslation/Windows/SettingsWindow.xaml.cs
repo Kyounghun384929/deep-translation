@@ -25,6 +25,8 @@ public partial class SettingsWindow : Window
         KoreanSourceBox.ItemsSource = LanguageMaps.KoreanSourceChoices;
         KoreanSourceBox.SelectedItem = LanguageMaps.KoreanSourceChoices.Contains(s.KoreanSourceTarget) ? s.KoreanSourceTarget : "영어";
 
+        GlossaryBox.Text = s.Glossary;
+
         ModelBox.Items.Add(AutoModel);
         if (!string.IsNullOrWhiteSpace(s.Model))
         {
@@ -54,7 +56,8 @@ public partial class SettingsWindow : Window
         try
         {
             var current = ModelBox.SelectedItem as string;
-            var models = await _client.GetModelsAsync(ServerBox.Text, CancellationToken.None);
+            // 연결 테스트·새로고침은 항상 서버에 최신 상태를 다시 물어본다
+            var models = await _client.GetModelsAsync(ServerBox.Text, CancellationToken.None, bypassCache: true);
 
             ModelBox.Items.Clear();
             ModelBox.Items.Add(AutoModel);
@@ -143,14 +146,8 @@ public partial class SettingsWindow : Window
         s.Model = ModelBox.SelectedItem as string == AutoModel ? "" : ModelBox.SelectedItem as string ?? "";
         s.TargetLanguage = TargetBox.SelectedItem as string ?? "한국어";
         s.KoreanSourceTarget = KoreanSourceBox.SelectedItem as string ?? "영어";
+        s.Glossary = GlossaryBox.Text;
         s.HotkeyGesture = _gesture.ToString();
         s.HotkeyDoublePress = DoublePressCheck.IsChecked == true || _gesture.IsCopyGesture;
         s.HotkeyEnabled = HotkeyCheck.IsChecked == true;
-        s.RunAtStartup = StartupCheck.IsChecked == true;
-        s.PopupNearCursor = CursorCheck.IsChecked == true;
-        s.CloseOnFocusLoss = FocusCheck.IsChecked == true;
-
-        App.Instance.ApplySettings();
-        Close();
-    }
-}
+        s.RunAtStartup = StartupCheck.

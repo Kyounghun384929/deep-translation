@@ -46,6 +46,14 @@
             </StackPanel>
         </Grid>
 
+        <TextBlock Text="용어집" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox x:Name="GlossaryBox" Height="70" Padding="6,5"
+                 AcceptsReturn="True" TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 FontFamily="Consolas, Malgun Gothic"/>
+        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,14"
+                   Text="한 줄에 하나: 원어 = 번역어 (예: LM Studio = LM Studio)"/>
+
         <TextBlock Text="번역 단축키" FontWeight="SemiBold" Margin="0,0,0,6"/>
         <Grid Margin="0,0,0,6">
             <Grid.ColumnDefinitions>
@@ -68,12 +76,4 @@
 
         <CheckBox x:Name="HotkeyCheck" Content="단축키 사용" Margin="0,0,0,9"/>
         <CheckBox x:Name="StartupCheck" Content="Windows 시작 시 자동 실행" Margin="0,0,0,9"/>
-        <CheckBox x:Name="CursorCheck" Content="번역 창을 마우스 커서 근처에 표시" Margin="0,0,0,9"/>
-        <CheckBox x:Name="FocusCheck" Content="창 밖을 클릭하면 번역 창 닫기" Margin="0,0,0,18"/>
-
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="저장" Width="86" Padding="0,6" Click="Save_Click" IsDefault="True"/>
-            <Button Content="취소" Width="86" Padding="0,6" Margin="8,0,0,0" IsCancel="True"/>
-        </StackPanel>
-    </StackPanel>
-</Window>
+        <CheckBox

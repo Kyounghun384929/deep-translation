@@ -29,8 +29,17 @@ public static class LanguageMaps
         ["러시아어"] = "Russian",
     };
 
+    /// <summary>표시명 → 영어명 (미등록이면 "Korean").</summary>
     public static string ToEnglish(string display) =>
         English.TryGetValue(display, out var e) ? e : "Korean";
+
+    // 영어명 → 표시명 역매핑 (마커 파싱 결과를 표시명으로 되돌릴 때 사용)
+    private static readonly Dictionary<string, string> Display =
+        English.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>영어명 → 표시명. 등록되지 않은 언어이면 null.</summary>
+    public static string? ToDisplay(string english) =>
+        english != null && Display.TryGetValue(english, out var d) ? d : null;
 
     /// <summary>
     /// 번역 대상 언어를 결정한다. 대상이 한국어인데 원문이 이미 한국어이면
@@ -60,13 +69,5 @@ public static class LanguageMaps
         return letters > 0 && (double)hangul / letters >= 0.3;
     }
 
-    public static string BuildSystemPrompt(string targetEnglish) =>
-        $"You are a professional translation engine. Translate the user's text into {targetEnglish}.\n" +
-        "Rules:\n" +
-        "- Detect the source language automatically.\n" +
-        "- Preserve the original formatting: line breaks, lists, markdown, and code blocks.\n" +
-        "- Inside code blocks, translate only comments and user-facing strings.\n" +
-        "- Keep proper nouns, product names, and technical terms accurate and natural.\n" +
-        "- Do not add explanations, notes, or romanization.\n" +
-        "- Output ONLY the translated text, nothing else.";
-}
+    /// <summary>
+    /// 번역 시스템 프롬프트를 조립한다. 첫 줄에 �

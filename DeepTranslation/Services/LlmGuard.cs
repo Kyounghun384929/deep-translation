@@ -13,9 +13,10 @@ namespace DeepTranslation.Services;
 /// </summary>
 public static class LlmGuard
 {
-    public readonly record struct CachedTranslation(string Text, string Model);
+    // Language: 마커에서 파싱한 실제 번역 언어(영어명). 마커 실패 시 "" — 캐시 히트 때도 대상 표시를 정확히 하기 위함.
+    public readonly record struct CachedTranslation(string Text, string Model, string Language);
 
-    private sealed record Entry(string Text, string Model, long Tick);
+    private sealed record Entry(string Text, string Model, string Language, long Tick);
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly object Sync = new();
@@ -26,10 +27,15 @@ public static class LlmGuard
     private const int CooldownMs = 250;
     private static long _lastCallEndTick;
 
-    public static string MakeKey(string server, string model, string targetEnglish, double temperature, string text)
+    // 직전 게이트 실행이 취소로 끝났는지. 게이트 안에서만 갱신되므로 경쟁이 없다.
+    private static bool _lastCallCanceled;
+
+    public static string MakeKey(string server, string model, string targetEnglish, string fallbackEnglish,
+        string glossary, double temperature, string text)
     {
         char sep = (char)31; // 필드 경계 모호성 방지용 구분자 (unit separator)
-        string raw = string.Join(sep, server, model, targetEnglish, temperature.ToString("0.###"), text);
+        string raw = string.Join(sep, server, model, targetEnglish, fallbackEnglish, glossary,
+            temperature.ToString("0.###"), text);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
     }
 
@@ -41,7 +47,7 @@ public static class LlmGuard
             {
                 if (Environment.TickCount64 - entry.Tick <= CacheTtl.TotalMilliseconds)
                 {
-                    value = new CachedTranslation(entry.Text, entry.Model);
+                    value = new CachedTranslation(entry.Text, entry.Model, entry.Language);
                     return true;
                 }
                 Cache.Remove(key); // 만료
@@ -51,12 +57,12 @@ public static class LlmGuard
         return false;
     }
 
-    public static void Store(string key, string text, string model)
+    public static void Store(string key, string text, string model, string language)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         lock (Sync)
         {
-            Cache[key] = new Entry(text, model, Environment.TickCount64);
+            Cache[key] = new Entry(text, model, language, Environment.TickCount64);
             if (Cache.Count <= CacheCapacity) return;
 
             // 용량 초과 시 가장 오래된 항목 제거 (용량이 작아 선형 탐색으로 충분)
@@ -74,21 +80,4 @@ public static class LlmGuard
     /// LLM 생성 요청을 전역적으로 한 번에 하나만 실행한다.
     /// 이전 요청이 끝나기 전에 들어온 요청은 이전 요청이 종료(완료/취소)될 때까지 대기한다.
     /// </summary>
-    public static async Task<T> RunExclusiveAsync<T>(Func<Task<T>> action, CancellationToken ct)
-    {
-        await Gate.WaitAsync(ct);
-        try
-        {
-            long sinceLast = Environment.TickCount64 - _lastCallEndTick;
-            if (sinceLast < CooldownMs)
-                await Task.Delay((int)(CooldownMs - sinceLast), ct);
-
-            return await action();
-        }
-        finally
-        {
-            _lastCallEndTick = Environment.TickCount64;
-            Gate.Release();
-        }
-    }
-}
+    public static async Task<T

@@ -30,6 +30,12 @@ public class AppSettings
     public double Temperature { get; set; } = 0.2;
     public int DoublePressWindowMs { get; set; } = 500;
 
+    /// <summary>자동 모드에서 마지막으로 성공한 모델. 재시작 직후에도 바로 이 모델부터 시도한다.</summary>
+    public string LastWorkingModel { get; set; } = "";
+
+    /// <summary>사용자 용어집. 한 줄에 하나씩 "원어 = 번역어" 형식으로 시스템 프롬프트에 주입된다.</summary>
+    public string Glossary { get; set; } = "";
+
     [JsonIgnore]
     public static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -46,19 +52,4 @@ public class AppSettings
         {
             // 손상된 설정 파일은 기본값으로 대체
         }
-        return new AppSettings();
-    }
-
-    public void Save()
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch
-        {
-            // 저장 실패는 치명적이지 않음
-        }
-    }
-}
+        

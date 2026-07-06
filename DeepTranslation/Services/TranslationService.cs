@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using DeepTranslation.Models;
 
@@ -7,8 +8,8 @@ public sealed class TranslationService
 {
     private readonly LmStudioClient _client = new();
 
-    /// <summary>자동 모드에서 마지막으로 성공한 모델 — 다음 번역 때 우선 시도한다.</summary>
-    private static string? _lastWorkingModel;
+    // 스트리밍 중 UI 갱신 최소 간격 — 델타마다 갱신하면 O(n²)이라 긴 글에서 UI 부하가 크다.
+    private const int UiEmitIntervalMs = 66;
 
     public sealed record Result(string Model, string TargetDisplay, string Text, bool FromCache = false);
 
@@ -21,12 +22,17 @@ public sealed class TranslationService
         CancellationToken ct, bool bypassCache = false)
     {
         var (targetDisplay, targetEnglish) = LanguageMaps.ResolveTarget(settings, text);
-        string cacheKey = LlmGuard.MakeKey(settings.ServerUrl, settings.Model, targetEnglish, settings.Temperature, text);
+        // 폴백 언어: 대상이 한국어이면 설정된 한국어-원문 대상, 아니면 한국어.
+        string fallbackEnglish = targetEnglish == "Korean"
+            ? LanguageMaps.ToEnglish(settings.KoreanSourceTarget)
+            : "Korean";
+        string cacheKey = LlmGuard.MakeKey(settings.ServerUrl, settings.Model, targetEnglish,
+            fallbackEnglish, settings.Glossary, settings.Temperature, text);
 
         if (!bypassCache && LlmGuard.TryGet(cacheKey, out var cached))
         {
             onText(cached.Text);
-            return new Result(cached.Model, targetDisplay, cached.Text, FromCache: true);
+            return new Result(cached.Model, ResolveDisplay(cached.Language, targetDisplay), cached.Text, FromCache: true);
         }
 
         return await LlmGuard.RunExclusiveAsync(async () =>
@@ -35,7 +41,7 @@ public sealed class TranslationService
             if (!bypassCache && LlmGuard.TryGet(cacheKey, out var completed))
             {
                 onText(completed.Text);
-                return new Result(completed.Model, targetDisplay, completed.Text, FromCache: true);
+                return new Result(completed.Model, ResolveDisplay(completed.Language, targetDisplay), completed.Text, FromCache: true);
             }
 
             List<string> candidates;
@@ -49,17 +55,20 @@ public sealed class TranslationService
                 if (models.Count == 0)
                     throw new LmStudioException(
                         "LM Studio에 사용 가능한 채팅 모델이 없습니다.\nLM Studio에서 모델을 로드한 뒤 다시 시도하세요.");
-                if (_lastWorkingModel is { } last && models.Remove(last))
-                    models.Insert(0, last);
+                if (!string.IsNullOrWhiteSpace(settings.LastWorkingModel) && models.Remove(settings.LastWorkingModel))
+                    models.Insert(0, settings.LastWorkingModel);
                 candidates = models.Take(3).ToList();
             }
 
-            string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish);
+            string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish, fallbackEnglish, settings.Glossary);
             LmStudioException? lastError = null;
             foreach (var model in candidates)
             {
                 ct.ThrowIfCancellationRequested();
                 var raw = new StringBuilder();
+                var marker = new MarkerFilter();
+                var sw = Stopwatch.StartNew();
+                long lastEmit = -UiEmitIntervalMs; // 첫 델타는 즉시 반영되도록
                 try
                 {
                     await _client.StreamChatAsync(settings.ServerUrl, model, systemPrompt, text,
@@ -67,31 +76,10 @@ public sealed class TranslationService
                         delta =>
                         {
                             raw.Append(delta);
-                            onText(ThinkFilter.Strip(raw.ToString()));
-                        }, ct);
-
-                    if (raw.Length == 0)
-                    {
-                        // 응답 본문 없이 스트림 종료 — 대개 모델 로드 실패
-                        lastError = new LmStudioException(
-                            $"모델 '{model}'이(가) 응답을 생성하지 못했습니다.\n" +
-                            "모델이 메모리에 로드되지 못했을 수 있습니다. LM Studio에서 직접 로드해 보세요.");
-                        continue;
-                    }
-
-                    _lastWorkingModel = model;
-                    string final = ThinkFilter.Strip(raw.ToString()).Trim();
-                    onText(final);
-                    LlmGuard.Store(cacheKey, final, model);
-                    return new Result(model, targetDisplay, final);
-                }
-                catch (LmStudioException ex)
-                {
-                    lastError = ex; // 다음 후보 모델로 재시도
-                }
-            }
-
-            throw lastError ?? new LmStudioException("번역에 실패했습니다.");
-        }, ct);
-    }
-}
+                            // UI 갱신 스로틀: 마지막 emit 후 일정 시간이 지났을 때만 표시용 본문을 계산·전달한다.
+                            long now = sw.ElapsedMilliseconds;
+                            if (now - lastEmit < UiEmitIntervalMs) return;
+                            lastEmit = now;
+                            string body = marker.Process(ThinkFilter.Strip(raw.ToString()));
+                            if (body.Length > 0) onText(body);
+                        }, ct
