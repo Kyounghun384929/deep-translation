@@ -1,8 +1,8 @@
-﻿; Deep Translation installer script (Inno Setup 6)
+; Deep Translation installer script (Inno Setup 6)
 ; Build: ISCC.exe setup.iss   (or run ..\build.ps1 -Installer)
 
 #define MyAppName "Deep Translation"
-#define MyAppVersion "1.6.5"
+#define MyAppVersion "1.6.6"
 #define MyAppPublisher "DeepTranslation"
 #define MyAppExeName "DeepTranslation.exe"
 
