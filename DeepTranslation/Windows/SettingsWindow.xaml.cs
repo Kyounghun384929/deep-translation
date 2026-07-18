@@ -1,4 +1,6 @@
+using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using DeepTranslation.Models;
@@ -12,12 +14,37 @@ public partial class SettingsWindow : Window
     private readonly LmStudioClient _client = new();
     private HotkeyGesture _gesture = HotkeyGesture.Default;
 
+    // 유휴 언로드 선택지 (표시 문자열 ↔ 분)
+    private static readonly string[] IdleChoices = { "사용 안 함", "3분 후", "5분 후", "10분 후" };
+    private static readonly int[] IdleMinuteValues = { 0, 3, 5, 10 };
+
+    private CancellationTokenSource? _downloadCts;
+    private bool _suppressModelChanged;
+
     public SettingsWindow()
     {
         InitializeComponent();
 
         var s = App.Settings;
         ServerBox.Text = s.ServerUrl;
+
+        // 번역 엔진 섹션
+        _suppressModelChanged = true;
+        foreach (var m in ModelCatalog.All) EmbeddedModelBox.Items.Add(FormatModelLabel(m));
+        int modelIdx = 0;
+        for (int i = 0; i < ModelCatalog.All.Count; i++)
+            if (ModelCatalog.All[i].Id == s.EmbeddedModelId) { modelIdx = i; break; }
+        EmbeddedModelBox.SelectedIndex = modelIdx;
+        _suppressModelChanged = false;
+
+        foreach (var c in IdleChoices) IdleUnloadBox.Items.Add(c);
+        int idleIdx = Array.IndexOf(IdleMinuteValues, s.IdleUnloadMinutes);
+        IdleUnloadBox.SelectedIndex = idleIdx >= 0 ? idleIdx : 2; // 목록에 없는 값이면 기본 5분
+
+        bool embedded = s.EngineMode != "LmStudio";
+        EmbeddedRadio.IsChecked = embedded;
+        LmStudioRadio.IsChecked = !embedded;
+        RefreshEmbeddedUi();
 
         TargetBox.ItemsSource = LanguageMaps.TargetChoices;
         TargetBox.SelectedItem = LanguageMaps.TargetChoices.Contains(s.TargetLanguage) ? s.TargetLanguage : "한국어";
@@ -75,6 +102,130 @@ public partial class SettingsWindow : Window
                 ServerStatus.Foreground = Brushes.Red;
             }
         }
+    }
+
+    // ---- 번역 엔진 ----
+
+    private ModelCatalog.ModelInfo SelectedModel => ModelCatalog.All[Math.Max(0, EmbeddedModelBox.SelectedIndex)];
+
+    private static string FormatModelLabel(ModelCatalog.ModelInfo m) =>
+        $"{m.DisplayName} · {m.SizeText}" + (m.IsDownloaded ? " · 다운로드됨 ✓" : "");
+
+    private void EngineMode_Changed(object sender, RoutedEventArgs e)
+    {
+        bool embedded = EmbeddedRadio.IsChecked == true;
+        EmbeddedPanel.Visibility = embedded ? Visibility.Visible : Visibility.Collapsed;
+        LmStudioPanel.Visibility = embedded ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void EmbeddedModel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressModelChanged) return;
+        RefreshEmbeddedUi();
+    }
+
+    /// <summary>선택 모델 기준으로 라이선스·버튼·상태 표시를 갱신한다.</summary>
+    private void RefreshEmbeddedUi()
+    {
+        var m = SelectedModel;
+        EmbeddedLicense.Text = m.LicenseNote;
+
+        bool downloading = _downloadCts != null;
+        bool downloaded = m.IsDownloaded;
+        DownloadButton.Content = downloading ? "취소" : "다운로드";
+        DownloadButton.IsEnabled = downloading || !downloaded;
+        DeleteModelButton.Visibility = !downloading && downloaded ? Visibility.Visible : Visibility.Collapsed;
+        if (!downloading)
+        {
+            DownloadStatus.Text = downloaded
+                ? "다운로드 완료 — 바로 사용할 수 있습니다."
+                : $"모델을 내려받아야 내장 번역을 사용할 수 있습니다. ({m.SizeText}, 1회)";
+        }
+    }
+
+    // 다운로드·삭제 후 콤보 항목의 "다운로드됨 ✓" 표시를 갱신한다
+    private void RefreshModelLabels()
+    {
+        _suppressModelChanged = true;
+        int sel = EmbeddedModelBox.SelectedIndex;
+        for (int i = 0; i < ModelCatalog.All.Count; i++)
+            EmbeddedModelBox.Items[i] = FormatModelLabel(ModelCatalog.All[i]);
+        EmbeddedModelBox.SelectedIndex = sel < 0 ? 0 : sel;
+        _suppressModelChanged = false;
+    }
+
+    private async void Download_Click(object sender, RoutedEventArgs e)
+    {
+        if (_downloadCts != null) // 진행 중이면 버튼은 [취소]로 동작
+        {
+            _downloadCts.Cancel();
+            return;
+        }
+
+        var m = SelectedModel;
+        if (m.IsDownloaded) return;
+
+        var cts = _downloadCts = new CancellationTokenSource();
+        EmbeddedModelBox.IsEnabled = false; // 받는 동안 모델 변경 방지
+        DownloadBar.Visibility = Visibility.Visible;
+        DownloadBar.Value = 0;
+        RefreshEmbeddedUi();
+        try
+        {
+            await ModelDownloader.DownloadAsync(m.Url, m.FilePath, m.SizeBytes,
+                (received, total) =>
+                {
+                    double pct = received * 100.0 / total;
+                    DownloadBar.Value = pct;
+                    DownloadStatus.Text = $"{received / 1048576.0:0} / {total / 1048576.0:0} MB ({pct:0}%)";
+                }, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            DownloadStatus.Text = "다운로드를 중단했습니다. 다시 시작하면 이어받습니다.";
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus.Text = "다운로드 실패: " + ex.Message;
+        }
+        finally
+        {
+            _downloadCts = null;
+            cts.Dispose();
+            EmbeddedModelBox.IsEnabled = true;
+            DownloadBar.Visibility = Visibility.Collapsed;
+            RefreshModelLabels();
+            RefreshEmbeddedUi();
+        }
+    }
+
+    private void DeleteModel_Click(object sender, RoutedEventArgs e)
+    {
+        var m = SelectedModel;
+        if (MessageBox.Show($"'{m.DisplayName}' 모델 파일({m.SizeText})을 삭제할까요?",
+                "Deep Translation", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            // 실행 중인 엔진이 파일을 잡고 있으면 먼저 내린다
+            if (EmbeddedEngine.RunningModelId == m.Id) EmbeddedEngine.Stop();
+            if (File.Exists(m.FilePath)) File.Delete(m.FilePath);
+            if (File.Exists(m.FilePath + ".part")) File.Delete(m.FilePath + ".part");
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus.Text = "삭제 실패: " + ex.Message;
+            return;
+        }
+        RefreshModelLabels();
+        RefreshEmbeddedUi();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _downloadCts?.Cancel(); // 창이 닫히면 진행 중 다운로드 중단 (.part가 남아 이어받기 가능)
+        base.OnClosed(e);
     }
 
     // ---- 단축키 설정 ----
@@ -142,6 +293,9 @@ public partial class SettingsWindow : Window
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var s = App.Settings;
+        s.EngineMode = LmStudioRadio.IsChecked == true ? "LmStudio" : "Embedded";
+        s.EmbeddedModelId = SelectedModel.Id;
+        s.IdleUnloadMinutes = IdleMinuteValues[Math.Max(0, IdleUnloadBox.SelectedIndex)];
         s.ServerUrl = LmStudioClient.NormalizeBaseUrl(ServerBox.Text);
         s.Model = ModelBox.SelectedItem as string == AutoModel ? "" : ModelBox.SelectedItem as string ?? "";
         s.TargetLanguage = TargetBox.SelectedItem as string ?? "한국어";
@@ -150,4 +304,20 @@ public partial class SettingsWindow : Window
         s.HotkeyGesture = _gesture.ToString();
         s.HotkeyDoublePress = DoublePressCheck.IsChecked == true || _gesture.IsCopyGesture;
         s.HotkeyEnabled = HotkeyCheck.IsChecked == true;
-        s.RunAtStartup = StartupCheck.
+        s.RunAtStartup = StartupCheck.IsChecked == true;
+        s.PopupNearCursor = CursorCheck.IsChecked == true;
+        s.CloseOnFocusLoss = FocusCheck.IsChecked == true;
+
+        App.Instance.ApplySettings();
+
+        // 미다운로드 모델로 저장하는 것은 허용하되 안내한다
+        if (s.EngineMode == "Embedded" && !SelectedModel.IsDownloaded)
+        {
+            MessageBox.Show(
+                $"선택한 모델('{SelectedModel.DisplayName}')이 아직 다운로드되지 않았습니다.\n" +
+                "번역을 사용하려면 설정 → 번역 엔진에서 모델을 다운로드하세요.",
+                "Deep Translation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        Close();
+    }
+}

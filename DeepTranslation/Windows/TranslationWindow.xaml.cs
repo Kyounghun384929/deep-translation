@@ -112,7 +112,8 @@ public partial class TranslationWindow : Window
     {
         string text = SourceBox.Text.Trim();
         string signature = string.Join((char)31,
-            App.Settings.ServerUrl, App.Settings.Model, App.Settings.TargetLanguage, text);
+            App.Settings.ServerUrl, App.Settings.Model, App.Settings.TargetLanguage,
+            App.Settings.EngineMode, App.Settings.EmbeddedModelId, text);
 
         // 같은 내용의 요청이 이미 진행 중이면 재시작하지 않는다 (불필요한 LLM 재호출 방지)
         if (!force && _inFlight && signature == _inFlightSignature) return;
@@ -145,7 +146,13 @@ public partial class TranslationWindow : Window
                     OutputBox.ScrollToEnd();
                 },
                 cts.Token,
-                bypassCache: force); // "다시 번역"은 캐시를 무시하고 새로 생성한다
+                bypassCache: force, // "다시 번역"은 캐시를 무시하고 새로 생성한다
+                onStatus: msg =>
+                {
+                    // 내장 엔진의 다운로드·로딩 진행 상태를 상태줄에 표시 (델타 처리와 같은 관례)
+                    if (cts.IsCancellationRequested) return;
+                    SetStatus(msg, error: false);
+                });
 
             if (cts.IsCancellationRequested) return;
             ModelLabel.Text = result.Model;
@@ -164,7 +171,9 @@ public partial class TranslationWindow : Window
         {
             if (cts.IsCancellationRequested) return;
             OutputBox.Text = ex.Message;
-            SetStatus("오류 — LM Studio 상태를 확인하세요", error: true);
+            SetStatus(App.Settings.EngineMode == "Embedded"
+                ? "오류 — 번역 엔진을 시작하지 못했습니다"
+                : "오류 — LM Studio 상태를 확인하세요", error: true);
         }
         catch (Exception ex)
         {

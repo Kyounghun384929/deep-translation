@@ -80,4 +80,29 @@ public static class LlmGuard
     /// LLM 생성 요청을 전역적으로 한 번에 하나만 실행한다.
     /// 이전 요청이 끝나기 전에 들어온 요청은 이전 요청이 종료(완료/취소)될 때까지 대기한다.
     /// </summary>
-    public static async Task<T
+    public static async Task<T> RunExclusiveAsync<T>(Func<Task<T>> action, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        bool canceled = false;
+        try
+        {
+            // 직전 요청이 취소로 끝났으면 냉각을 건너뛴다 — 타이핑 중 연속 재번역 반응성 개선.
+            long sinceLast = Environment.TickCount64 - _lastCallEndTick;
+            if (!_lastCallCanceled && sinceLast < CooldownMs)
+                await Task.Delay((int)(CooldownMs - sinceLast), ct);
+
+            return await action();
+        }
+        catch (OperationCanceledException)
+        {
+            canceled = true;
+            throw;
+        }
+        finally
+        {
+            _lastCallEndTick = Environment.TickCount64;
+            _lastCallCanceled = canceled;
+            Gate.Release();
+        }
+    }
+}

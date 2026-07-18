@@ -179,4 +179,39 @@ public sealed class LmStudioClient
                     {
                         string msg = err is JsonValue v && v.TryGetValue<string>(out var s)
                             ? s : err["message"]?.GetValue<string>() ?? err.ToJsonString();
-                
+                        throw new LmStudioException("LM Studio 오류: " + msg);
+                    }
+                    var delta = node?["choices"]?[0]?["delta"]?["content"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(delta)) onDelta(delta);
+                }
+                catch (JsonException)
+                {
+                    // 잘린 청크는 무시
+                }
+            }
+        }
+    }
+
+    private static string ExtractErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "(응답 본문 없음)";
+        try
+        {
+            var err = JsonNode.Parse(body)?["error"];
+            if (err is JsonValue v && v.TryGetValue<string>(out var s)) return s;
+            var msg = err?["message"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(msg)) return msg;
+        }
+        catch
+        {
+            // JSON이 아니면 원문 일부를 그대로 표시
+        }
+        return body.Length > 300 ? body[..300] : body;
+    }
+
+    private static string ConnectionHelp(string baseUrl) =>
+        $"LM Studio 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
+        "1. LM Studio를 실행하세요.\n" +
+        "2. 개발자(Developer) 탭에서 서버를 시작하세요 (Status: Running).\n" +
+        "3. 채팅용 모델을 하나 로드하세요.";
+}

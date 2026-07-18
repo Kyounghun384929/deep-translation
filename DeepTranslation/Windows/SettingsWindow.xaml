@@ -7,27 +7,65 @@
         FontFamily="Segoe UI, Malgun Gothic" FontSize="13">
     <StackPanel Margin="22,18,22,18">
 
-        <TextBlock Text="LM Studio 서버" FontWeight="SemiBold" Margin="0,0,0,6"/>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="ServerBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"/>
-            <Button Grid.Column="1" Content="연결 테스트" Margin="8,0,0,0" Padding="12,5" Click="Test_Click"/>
-        </Grid>
-        <TextBlock x:Name="ServerStatus" Foreground="Gray" FontSize="12" Margin="0,5,0,14"
-                   Text="예: http://localhost:1234" TextWrapping="Wrap"/>
+        <TextBlock Text="번역 엔진" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <RadioButton x:Name="EmbeddedRadio" Content="내장 모델 (권장)" GroupName="EngineMode"
+                         Checked="EngineMode_Changed"/>
+            <RadioButton x:Name="LmStudioRadio" Content="LM Studio 서버" GroupName="EngineMode"
+                         Margin="18,0,0,0" Checked="EngineMode_Changed"/>
+        </StackPanel>
 
-        <TextBlock Text="모델" FontWeight="SemiBold" Margin="0,0,0,6"/>
-        <Grid Margin="0,0,0,14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <ComboBox x:Name="ModelBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"/>
-            <Button Grid.Column="1" Content="새로고침" Margin="8,0,0,0" Padding="12,5" Click="Refresh_Click"/>
-        </Grid>
+        <StackPanel x:Name="EmbeddedPanel">
+            <ComboBox x:Name="EmbeddedModelBox" Padding="6,5" VerticalContentAlignment="Center"
+                      SelectionChanged="EmbeddedModel_Changed"/>
+            <TextBlock x:Name="EmbeddedLicense" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                       Margin="0,5,0,8"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="DownloadButton" Grid.Column="0" Content="다운로드" Padding="12,5"
+                        Click="Download_Click"/>
+                <ProgressBar x:Name="DownloadBar" Grid.Column="1" Height="10" Margin="8,0"
+                             VerticalAlignment="Center" Visibility="Collapsed"/>
+                <Button x:Name="DeleteModelButton" Grid.Column="2" Content="삭제" Padding="12,5"
+                        Click="DeleteModel_Click"/>
+            </Grid>
+            <TextBlock x:Name="DownloadStatus" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                       Margin="0,5,0,8"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                <TextBlock Text="유휴 시 메모리 회수:" VerticalAlignment="Center"
+                           ToolTip="번역이 없으면 모델을 메모리에서 내립니다. 다음 번역 때 자동으로 다시 켜집니다."/>
+                <ComboBox x:Name="IdleUnloadBox" Margin="8,0,0,0" Padding="6,3" MinWidth="110"
+                          VerticalContentAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel x:Name="LmStudioPanel">
+            <TextBlock Text="LM Studio 서버" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ServerBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="1" Content="연결 테스트" Margin="8,0,0,0" Padding="12,5" Click="Test_Click"/>
+            </Grid>
+            <TextBlock x:Name="ServerStatus" Foreground="Gray" FontSize="12" Margin="0,5,0,14"
+                       Text="예: http://localhost:1234" TextWrapping="Wrap"/>
+
+            <TextBlock Text="모델" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ComboBox x:Name="ModelBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="1" Content="새로고침" Margin="8,0,0,0" Padding="12,5" Click="Refresh_Click"/>
+            </Grid>
+        </StackPanel>
 
         <Grid Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
@@ -76,4 +114,12 @@
 
         <CheckBox x:Name="HotkeyCheck" Content="단축키 사용" Margin="0,0,0,9"/>
         <CheckBox x:Name="StartupCheck" Content="Windows 시작 시 자동 실행" Margin="0,0,0,9"/>
-        <CheckBox
+        <CheckBox x:Name="CursorCheck" Content="번역 창을 마우스 커서 근처에 표시" Margin="0,0,0,9"/>
+        <CheckBox x:Name="FocusCheck" Content="창 밖을 클릭하면 번역 창 닫기" Margin="0,0,0,18"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="저장" Width="86" Padding="0,6" Click="Save_Click" IsDefault="True"/>
+            <Button Content="취소" Width="86" Padding="0,6" Margin="8,0,0,0" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

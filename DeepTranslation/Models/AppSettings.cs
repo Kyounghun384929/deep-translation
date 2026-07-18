@@ -6,6 +6,15 @@ namespace DeepTranslation.Models;
 
 public class AppSettings
 {
+    /// <summary>번역 엔진 모드: "Embedded"(내장 llama.cpp) 또는 "LmStudio".</summary>
+    public string EngineMode { get; set; } = "Embedded";
+
+    /// <summary>내장 엔진에서 사용할 모델의 카탈로그 Id (ModelCatalog 참조).</summary>
+    public string EmbeddedModelId { get; set; } = "qwen3-4b-instruct-2507";
+
+    /// <summary>내장 엔진 유휴 언로드 대기 시간(분). 0이면 언로드하지 않음.</summary>
+    public int IdleUnloadMinutes { get; set; } = 5;
+
     public string ServerUrl { get; set; } = "http://localhost:1234";
 
     /// <summary>비어 있으면 서버에 로드된 첫 번째 모델을 자동 사용.</summary>
@@ -52,4 +61,19 @@ public class AppSettings
         {
             // 손상된 설정 파일은 기본값으로 대체
         }
-        
+        return new AppSettings();
+    }
+
+    public void Save()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // 저장 실패는 치명적이지 않음
+        }
+    }
+}

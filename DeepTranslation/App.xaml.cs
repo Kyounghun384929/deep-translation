@@ -225,6 +225,8 @@ public partial class App : Application
         }
         StartupManager.Sync(Settings.RunAtStartup);
         UpdateTrayStartupCheck();
+        // 엔진 모드가 바뀌었거나 내장 모델 선택이 바뀌었으면 실행 중인 llama-server를 내린다
+        EmbeddedEngine.ApplySettings(Settings);
     }
 
     /// <summary>트레이 메뉴에서 자동 시작을 즉시 켜고 끈다.</summary>
@@ -252,6 +254,7 @@ public partial class App : Application
         }
         _hook?.Dispose();
         _window?.ForceClose();
+        EmbeddedEngine.Stop(); // 내장 엔진 프로세스 정리
         Shutdown();
     }
 
@@ -264,6 +267,7 @@ public partial class App : Application
         }
         _hook?.Dispose();
         _mutex?.Dispose();
+        EmbeddedEngine.Stop(); // 모든 종료 경로에서 llama-server가 남지 않도록 보장
         base.OnExit(e);
     }
 
@@ -303,4 +307,108 @@ public partial class App : Application
             bool glossaryMiss = !LlmGuard.TryGet(LlmGuard.MakeKey("srv", "model-x", "Korean", "English", "term=x", 0.2, "hello"), out _);
             Out($"guard-cache: hit={hit} text='{cachedEntry.Text}' model={cachedEntry.Model} lang={cachedEntry.Language} miss-on-other={miss} glossary-key={glossaryMiss}");
 
-            // LlmGuard 검증: 전역 단일 실행 (동시 요청이 겹치지 않아야 
+            // LlmGuard 검증: 전역 단일 실행 (동시 요청이 겹치지 않아야 함)
+            int concurrent = 0, maxConcurrent = 0;
+            var tasks = Enumerable.Range(0, 3).Select(_ => LlmGuard.RunExclusiveAsync(async () =>
+            {
+                int now = Interlocked.Increment(ref concurrent);
+                maxConcurrent = Math.Max(maxConcurrent, now);
+                await Task.Delay(80);
+                Interlocked.Decrement(ref concurrent);
+                return 0;
+            }, CancellationToken.None)).ToArray();
+            await Task.WhenAll(tasks);
+            Out($"guard-serialize: maxConcurrent={maxConcurrent} (1이어야 정상)");
+
+            // MarkerFilter 검증: 마커 있음/없음/개행 없는 짧은 출력/부분 도착
+            {
+                var f1 = new MarkerFilter();
+                string body1 = f1.Finish("@@Korean@@\n안녕하세요");
+                Out($"marker-present: lang={f1.MarkerLanguage} body='{body1}' (Korean/안녕하세요여야 정상)");
+
+                var f2 = new MarkerFilter();
+                string body2 = f2.Finish("Hello there");
+                Out($"marker-absent: lang='{f2.MarkerLanguage}' body='{body2}' (빈 lang / 'Hello there'여야 정상)");
+
+                var f3 = new MarkerFilter();
+                string body3 = f3.Finish("@@English@@ Hello"); // 개행 없이 끝나는 짧은 출력
+                Out($"marker-noline: lang={f3.MarkerLanguage} body='{body3}' (English/Hello여야 정상)");
+
+                // 부분 도착 시뮬레이션: 마커가 덜 온 동안에는 표시 보류(빈 문자열), 완성 후 본문
+                var f4 = new MarkerFilter();
+                string p1 = f4.Process("@@Kor");             // 아직 마커 미완성 → 보류
+                string p2 = f4.Process("@@Korean@@\n반가");    // 완성 → 본문
+                Out($"marker-partial: hold='{p1}' after='{p2}' (hold는 빈 문자열, after는 '반가'여야 정상)");
+
+                // 미등록 언어 마커는 ToDisplay가 null → 표시명 폴백 확인
+                Out($"marker-todisplay: Korean->{LanguageMaps.ToDisplay("Korean")} Klingon->{LanguageMaps.ToDisplay("Klingon") ?? "null"}");
+            }
+
+            // BuildSystemPrompt 용어집 주입 검증
+            {
+                string promptNoGloss = LanguageMaps.BuildSystemPrompt("Korean", "English", "");
+                string promptGloss = LanguageMaps.BuildSystemPrompt("Korean", "English", "LM Studio = LM Studio\n = 빈원어무시\nfoo=bar");
+                bool hasMarker = promptGloss.Contains("@@Korean@@");
+                bool noSectionWhenEmpty = !promptNoGloss.Contains("TERMINOLOGY");
+                bool hasSectionWhenSet = promptGloss.Contains("TERMINOLOGY") && promptGloss.Contains("\"LM Studio\" → \"LM Studio\"") && promptGloss.Contains("\"foo\" → \"bar\"");
+                bool ignoresBadLine = !promptGloss.Contains("빈원어무시");
+                Out($"prompt: marker={hasMarker} noSectionEmpty={noSectionWhenEmpty} hasSectionSet={hasSectionWhenSet} ignoresBadLine={ignoresBadLine}");
+            }
+
+            // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행
+            if (args.Contains("--no-llm"))
+            {
+                Out("selftest done (LLM 호출 생략)");
+            }
+            else
+            {
+                string text = "Local LLMs make private, offline translation possible.";
+                int idx = Array.IndexOf(args, "--selftest");
+                if (idx >= 0 && idx + 1 < args.Length && !args[idx + 1].StartsWith("--"))
+                    text = args[idx + 1];
+
+                // 모델 목록 조회는 LM Studio 모드에서만 의미가 있다 (내장 모드는 엔진이 직접 기동)
+                if (settings.EngineMode == "LmStudio")
+                {
+                    var client = new LmStudioClient();
+                    Out($"server: {LmStudioClient.NormalizeBaseUrl(settings.ServerUrl)}");
+                    var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None);
+                    Out("models: " + string.Join(" | ", models));
+                }
+                else
+                {
+                    Out($"engine: embedded ({settings.EmbeddedModelId})");
+                }
+
+                var service = new TranslationService();
+                string last = "";
+                var result = await service.TranslateAsync(settings, text, t => last = t, CancellationToken.None);
+                Out($"model-used: {result.Model}");
+                Out($"target: {result.TargetDisplay}");
+                Out($"source: {text}");
+                Out($"translation: {last}");
+
+                // 동일 요청 재호출 — LLM을 다시 부르지 않고 캐시로 응답해야 한다
+                var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                var second = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None);
+                Out($"repeat-call: fromCache={second.FromCache} elapsed={sw2.ElapsedMilliseconds}ms (fromCache=True여야 정상)");
+
+                // bypassCache=true는 캐시를 무시하고 새로 생성해야 한다
+                var third = await service.TranslateAsync(settings, text, _ => { }, CancellationToken.None, bypassCache: true);
+                Out($"regen-call: fromCache={third.FromCache} (False여야 정상)");
+            }
+        }
+        catch (Exception ex)
+        {
+            Out("SELFTEST FAILED: " + ex.Message);
+            exitCode = 1;
+        }
+
+        int outIdx = Array.IndexOf(args, "--out");
+        if (outIdx >= 0 && outIdx + 1 < args.Length)
+        {
+            try { File.WriteAllText(args[outIdx + 1], log.ToString()); } catch { }
+        }
+        Shutdown(exitCode);
+    }
+}

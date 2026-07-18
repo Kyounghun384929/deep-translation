@@ -26,4 +26,16 @@ public static class StartupManager
     {
         try
         {
-            using var key = Registry.CurrentUser.CreateSubKey(RunKey); // 키가 �
+            using var key = Registry.CurrentUser.CreateSubKey(RunKey); // 키가 없으면 생성
+            if (key == null) return;
+            if (enabled && Environment.ProcessPath is { } exe)
+                key.SetValue(ValueName, $"\"{exe}\" --autostart"); // 실행 파일이 이동했어도 경로 갱신
+            else if (!enabled)
+                key.DeleteValue(ValueName, throwOnMissingValue: false);
+        }
+        catch
+        {
+            // 레지스트리 접근 실패는 무시 (기능적 필수 아님)
+        }
+    }
+}

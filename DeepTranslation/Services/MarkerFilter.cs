@@ -80,4 +80,8 @@ public sealed class MarkerFilter
     // 스트리밍 중 재호출에도 일관되게 동작하도록 한다. 마커 없음(_markerLang == "")이면 그대로 둔다.
     private string StripResolved(string accumulated)
     {
-        if (_markerLang.Length == 0)
+        if (_markerLang.Length == 0) return accumulated.TrimStart();
+        var m = Marker.Match(accumulated);
+        return m.Success ? accumulated[m.Length..].TrimStart() : accumulated.TrimStart();
+    }
+}
