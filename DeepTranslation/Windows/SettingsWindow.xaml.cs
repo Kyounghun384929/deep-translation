@@ -50,6 +50,9 @@ public partial class SettingsWindow : Window
         LmStudioRadio.IsChecked = !embedded;
         RefreshEmbeddedUi();
 
+        // SAC이 켜진 PC에서는 내장 엔진(무서명 llama-server)이 차단되므로 미리 경고한다 (창 생성 시 1회 판정)
+        if (EmbeddedEngine.IsSmartAppControlOn) SacWarning.Visibility = Visibility.Visible;
+
         TargetBox.ItemsSource = LanguageMaps.TargetChoices;
         TargetBox.SelectedItem = LanguageMaps.TargetChoices.Contains(s.TargetLanguage) ? s.TargetLanguage : "한국어";
 

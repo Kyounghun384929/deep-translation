@@ -98,6 +98,13 @@ LM Studio 모드에서 모델을 지정하지 않으면(기본값: 자동) 서�
 설정 파일: `%APPDATA%\DeepTranslation\settings.json`
 모델·엔진 파일: `%LOCALAPPDATA%\DeepTranslation\models`, `%LOCALAPPDATA%\DeepTranslation\llama`
 
+## 알려진 제한 사항
+
+**스마트 앱 컨트롤(SAC)이 켜진 PC**에서는 내장 번역 엔진(llama-server.exe, 무서명)의 실행이
+차단됩니다. SAC은 앱별 예외 등록을 지원하지 않으므로, **LM Studio 모드**(서명된 앱이라 차단되지
+않음)를 사용하거나 Windows 설정 → 개인 정보 및 보안 → Windows 보안 → 앱 및 브라우저 컨트롤에서
+SAC을 꺼야 합니다. 설정 창과 오류 메시지에서도 같은 안내가 표시됩니다.
+
 ## 구조
 
 ```

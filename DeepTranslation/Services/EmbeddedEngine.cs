@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -5,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using DeepTranslation.Models;
+using Microsoft.Win32;
 
 namespace DeepTranslation.Services;
 
@@ -15,8 +17,10 @@ namespace DeepTranslation.Services;
 /// </summary>
 public static class EmbeddedEngine
 {
-    // llama.cpp 릴리스 태그 고정 — zip URL·폴더 이름에 함께 쓰인다
-    private const string LlamaTag = "b10066";
+    // llama.cpp 릴리스 태그 고정 — zip URL·폴더 이름에 함께 쓰인다.
+    // b9982: 최근 릴리스 중 다운로드 최다(4,400+회) — 스마트 앱 컨트롤의 클라우드 평판 판정을
+    // 통과할 가능성을 높이기 위해 갓 나온 태그 대신 배포 이력이 쌓인 태그를 쓴다 (v1.6.2 실험).
+    private const string LlamaTag = "b9982";
     private const string VulkanZipUrl =
         $"https://github.com/ggml-org/llama.cpp/releases/download/{LlamaTag}/llama-{LlamaTag}-bin-win-vulkan-x64.zip";
     private const string CpuZipUrl =
@@ -36,6 +40,17 @@ public static class EmbeddedEngine
     private static int _idleMinutes = 5;
     private static long _lastActivityTick;
 
+    // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION — 앱 컨트롤 정책(SAC 등)이 실행 파일을 차단
+    private const int ErrorSystemIntegrityPolicyViolation = 4551;
+
+    private const string SacBlockedMessage =
+        "Windows 스마트 앱 컨트롤이 번역 엔진(llama-server.exe)의 실행을 차단했습니다.\n" +
+        "스마트 앱 컨트롤은 앱별 예외를 지원하지 않습니다.\n\n" +
+        "해결 방법:\n" +
+        "1. 설정 → 번역 엔진에서 'LM Studio 서버' 모드를 사용하세요 (서명된 앱이라 차단되지 않습니다).\n" +
+        "2. 또는 Windows 설정 → 개인 정보 및 보안 → Windows 보안 → 앱 및 브라우저 컨트롤에서 " +
+        "스마트 앱 컨트롤을 끄세요.";
+
     private static string AppDataDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeepTranslation");
     private static string LlamaDir => Path.Combine(AppDataDir, "llama");
@@ -46,6 +61,27 @@ public static class EmbeddedEngine
     public static string RunningModelId
     {
         get { lock (Sync) return _proc is { HasExited: false } ? _modelId : ""; }
+    }
+
+    /// <summary>
+    /// Windows 스마트 앱 컨트롤(SAC)이 켜져 있는지 여부.
+    /// 켜져 있으면 무서명인 llama-server.exe 실행이 차단된다 (앱별 예외 등록 불가).
+    /// </summary>
+    public static bool IsSmartAppControlOn
+    {
+        get
+        {
+            // VerifiedAndReputablePolicyState: 0=꺼짐, 1=켜짐(차단), 2=평가 모드(차단 안 함)
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\CI\Policy");
+                return key?.GetValue("VerifiedAndReputablePolicyState") is 1;
+            }
+            catch
+            {
+                return false; // 읽기 실패는 꺼짐으로 간주
+            }
+        }
     }
 
     /// <summary>
@@ -96,7 +132,9 @@ public static class EmbeddedEngine
             }
         }
 
-        throw new LmStudioException("내장 번역 엔진을 시작하지 못했습니다.\n\n" + TailLog());
+        // SAC이 DLL만 차단하는 변형에서는 프로세스가 떴다가 즉사해 여기까지 온다 — 같은 안내를 앞에 붙인다
+        string sacHint = IsSmartAppControlOn ? SacBlockedMessage + "\n\n" : "";
+        throw new LmStudioException("내장 번역 엔진을 시작하지 못했습니다.\n\n" + sacHint + TailLog());
     }
 
     /// <summary>번역 활동이 있었음을 알린다 — 유휴 언로드 타이머를 리셋한다.</summary>
@@ -183,6 +221,9 @@ public static class EmbeddedEngine
         catch (Exception ex)
         {
             log.Dispose();
+            // SAC 차단이면 폴백(CPU 빌드)도 같은 무서명이라 소용없다 — 전용 안내로 즉시 실패
+            if (ex is Win32Exception { NativeErrorCode: ErrorSystemIntegrityPolicyViolation } || IsSmartAppControlOn)
+                throw new LmStudioException(SacBlockedMessage, ex);
             throw new LmStudioException("llama-server 실행에 실패했습니다: " + ex.Message, ex);
         }
         proc.BeginOutputReadLine();

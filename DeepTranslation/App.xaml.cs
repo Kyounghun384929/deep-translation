@@ -370,6 +370,9 @@ public partial class App : Application
                 Out($"theme: light-bg={lightBg} dark-bg={darkBg} changed={lightBg != darkBg} (changed=True여야 정상)");
             }
 
+            // SAC 상태 판정이 크래시 없이 동작하는지 확인 (SAC 꺼진 PC에서는 False)
+            Out($"sac: on={EmbeddedEngine.IsSmartAppControlOn}");
+
             // 단축키 파싱 검증
             foreach (var g in new[] { "Ctrl+C", "Alt+Q", "Ctrl+Shift+T", "F9", "Q", "Shift+Q" })
             {
