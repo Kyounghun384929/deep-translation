@@ -21,6 +21,10 @@ public partial class App : Application
     private TranslationWindow? _window;
     private HotkeyGesture _gesture = HotkeyGesture.Default;
 
+    // 업데이트 풍선 클릭 대기 중인 릴리스 정보 (null이면 업데이트 풍선이 아님 — 시작 안내 풍선과 구분)
+    private UpdateChecker.UpdateInfo? _pendingUpdate;
+    private bool _updateInstalling;
+
     /// <summary>현재 단축키의 표시용 문자열 (예: "Ctrl+C 두 번", "Alt+Q").</summary>
     public static string HotkeyDisplayText { get; private set; } = "Ctrl+C 두 번";
 
@@ -55,6 +59,7 @@ public partial class App : Application
         }
 
         Settings = AppSettings.Load();
+        ThemeManager.Apply(Settings); // 번역 창 생성 전에 팔레트를 확정한다
         SetupTray();
 
         _hook = new KeyboardHookService();
@@ -80,6 +85,59 @@ public partial class App : Application
             _tray?.ShowBalloonTip(4000, "Deep Translation 실행 중",
                 $"텍스트를 선택하고 {HotkeyDisplayText} 누르면 번역 창이 열립니다.",
                 WinForms.ToolTipIcon.Info);
+        }
+
+        // 하루 한 번(20시간 간격) 새 버전을 조용히 확인한다
+        if (Settings.AutoUpdateCheck && DateTime.UtcNow - Settings.LastUpdateCheckUtc > TimeSpan.FromHours(20))
+            _ = AutoUpdateCheckAsync();
+    }
+
+    /// <summary>시작 10초 뒤 새 버전을 확인하고, 있으면 트레이 풍선으로 알린다. 실패는 조용히 무시.</summary>
+    private async Task AutoUpdateCheckAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(10)); // 시작 직후 부하·네트워크 초기화를 피한다
+        Settings.LastUpdateCheckUtc = DateTime.UtcNow; // 확인 '시도' 시점 기록
+        Settings.Save();
+
+        var info = await UpdateChecker.CheckAsync(manual: false, CancellationToken.None);
+        if (info == null || _tray == null) return;
+        _pendingUpdate = info;
+        _tray.ShowBalloonTip(8000, "Deep Translation 업데이트",
+            $"새 버전 v{info.Version} 사용 가능 — 클릭하면 업데이트를 설치합니다.",
+            WinForms.ToolTipIcon.Info);
+    }
+
+    /// <summary>트레이 메뉴의 수동 업데이트 확인 — 새 버전이 있으면 설치 여부를 묻는다.</summary>
+    private async Task ManualUpdateCheckAsync()
+    {
+        var info = await UpdateChecker.CheckAsync(manual: true, CancellationToken.None);
+        if (info == null) return;
+        var answer = MessageBox.Show(
+            $"새 버전 v{info.Version}이(가) 있습니다. 지금 설치할까요?\n" +
+            "다운로드 후 설치 프로그램이 실행되며 앱이 다시 시작됩니다.",
+            "Deep Translation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer == MessageBoxResult.Yes) await InstallUpdateAsync(info);
+    }
+
+    /// <summary>설치 프로그램을 임시 폴더에 내려받아 실행하고 앱을 종료한다 (종료·재시작은 설치 프로그램이 처리).</summary>
+    private async Task InstallUpdateAsync(UpdateChecker.UpdateInfo info)
+    {
+        if (_updateInstalling) return; // 중복 클릭 방지
+        _updateInstalling = true;
+        try
+        {
+            _tray?.ShowBalloonTip(4000, "Deep Translation 업데이트",
+                $"v{info.Version} 설치 파일을 내려받는 중입니다…", WinForms.ToolTipIcon.Info);
+            string dest = Path.Combine(Path.GetTempPath(), $"DeepTranslation-Setup-{info.Version}.exe");
+            await ModelDownloader.DownloadAsync(info.InstallerUrl, dest, info.InstallerSize, null, CancellationToken.None);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dest) { UseShellExecute = true });
+            ExitApplication();
+        }
+        catch (Exception ex)
+        {
+            _updateInstalling = false;
+            MessageBox.Show("업데이트 설치를 시작하지 못했습니다:\n" + ex.Message,
+                "Deep Translation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -119,6 +177,7 @@ public partial class App : Application
 
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("번역 창 열기", null, (s, e) => ShowTranslationWindow());
+        menu.Items.Add("업데이트 확인", null, async (s, e) => await ManualUpdateCheckAsync());
         menu.Items.Add("설정", null, (s, e) => ShowSettingsDialog());
         menu.Items.Add(new WinForms.ToolStripSeparator());
         _startupMenuItem = new WinForms.ToolStripMenuItem("Windows 시작 시 자동 실행")
@@ -131,6 +190,13 @@ public partial class App : Application
         menu.Items.Add("종료", null, (s, e) => ExitApplication());
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (s, e) => ShowTranslationWindow();
+        // 업데이트 풍선 클릭 시 설치 시작 — 다른 풍선(시작 안내 등)은 _pendingUpdate가 없어 무시된다
+        _tray.BalloonTipClicked += async (s, e) =>
+        {
+            if (_pendingUpdate is not { } update) return;
+            _pendingUpdate = null;
+            await InstallUpdateAsync(update);
+        };
     }
 
     private static System.Drawing.Icon LoadAppIcon()
@@ -217,6 +283,7 @@ public partial class App : Application
     public void ApplySettings()
     {
         Settings.Save();
+        ThemeManager.Apply(Settings);
         ConfigureHook();
         if (_hook != null)
         {
@@ -267,6 +334,7 @@ public partial class App : Application
         }
         _hook?.Dispose();
         _mutex?.Dispose();
+        ThemeManager.Shutdown(); // SystemEvents 구독 해제
         EmbeddedEngine.Stop(); // 모든 종료 경로에서 llama-server가 남지 않도록 보장
         base.OnExit(e);
     }
@@ -285,11 +353,22 @@ public partial class App : Application
         {
             Settings = AppSettings.Load();
             var settings = Settings;
+            ThemeManager.Apply(Settings);
 
             // UI 스모크 테스트: 창 XAML이 런타임에 정상 로드되는지 확인
             _ = new TranslationWindow();
             _ = new SettingsWindow();
             Out("ui: TranslationWindow / SettingsWindow OK");
+
+            // 테마 검증: Light/Dark 적용 시 리소스 브러시가 실제로 바뀌는지 (Apply는 인스턴스를 교체한다)
+            {
+                ThemeManager.Apply(new AppSettings { Theme = "Light" });
+                var lightBg = ((System.Windows.Media.SolidColorBrush)Resources["BgBrush"]).Color;
+                ThemeManager.Apply(new AppSettings { Theme = "Dark" });
+                var darkBg = ((System.Windows.Media.SolidColorBrush)Resources["BgBrush"]).Color;
+                ThemeManager.Apply(Settings); // 사용자 설정 테마로 복원
+                Out($"theme: light-bg={lightBg} dark-bg={darkBg} changed={lightBg != darkBg} (changed=True여야 정상)");
+            }
 
             // 단축키 파싱 검증
             foreach (var g in new[] { "Ctrl+C", "Alt+Q", "Ctrl+Shift+T", "F9", "Q", "Shift+Q" })
@@ -353,6 +432,25 @@ public partial class App : Application
                 bool hasSectionWhenSet = promptGloss.Contains("TERMINOLOGY") && promptGloss.Contains("\"LM Studio\" → \"LM Studio\"") && promptGloss.Contains("\"foo\" → \"bar\"");
                 bool ignoresBadLine = !promptGloss.Contains("빈원어무시");
                 Out($"prompt: marker={hasMarker} noSectionEmpty={noSectionWhenEmpty} hasSectionSet={hasSectionWhenSet} ignoresBadLine={ignoresBadLine}");
+            }
+
+            // UpdateChecker 검증: 릴리스 JSON 파싱과 버전 비교 (네트워크 불필요)
+            {
+                string releaseJson = """
+                    {"tag_name":"v9.9.9","assets":[
+                      {"name":"other.zip","browser_download_url":"https://example.com/other.zip","size":1},
+                      {"name":"DeepTranslation-Setup-9.9.9.exe","browser_download_url":"https://example.com/DeepTranslation-Setup-9.9.9.exe","size":12345}]}
+                    """;
+                var parsed = UpdateChecker.ParseLatest(releaseJson);
+                bool parseOk = parsed != null && parsed.Version == new Version(9, 9, 9)
+                    && parsed.InstallerUrl.EndsWith("DeepTranslation-Setup-9.9.9.exe") && parsed.InstallerSize == 12345;
+                bool newer = parsed != null && UpdateChecker.IsNewer(parsed.Version);
+                bool notNewerOnSame = !UpdateChecker.IsNewer(UpdateChecker.CurrentVersion);
+                Out($"update-parse: current=v{UpdateChecker.CurrentVersion} ok={parseOk} newer={newer} same-not-newer={notNewerOnSame} (전부 True여야 정상)");
+
+                // 실제 API 1회 — 저장소가 비공개인 동안은 404 → 자동 확인 경로는 조용히 null이어야 한다
+                var real = await UpdateChecker.CheckAsync(manual: false, CancellationToken.None);
+                Out($"update-check: result={(real == null ? "null" : "v" + real.Version)} (비공개 저장소/최신이면 null)");
             }
 
             // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행

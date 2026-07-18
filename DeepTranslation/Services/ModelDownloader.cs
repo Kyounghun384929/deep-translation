@@ -13,6 +13,12 @@ public static class ModelDownloader
 {
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
+    static ModelDownloader()
+    {
+        // GitHub 릴리스 자산 다운로드는 User-Agent가 없으면 거부될 수 있다 (HF에는 무해)
+        Http.DefaultRequestHeaders.UserAgent.ParseAdd("DeepTranslation");
+    }
+
     // 진행 콜백 호출 간격 (바이트) — 너무 잦은 UI 갱신을 막는다
     private const long ProgressStepBytes = 1024 * 1024;
 

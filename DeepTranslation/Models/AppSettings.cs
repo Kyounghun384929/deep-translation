@@ -33,6 +33,15 @@ public class AppSettings
     /// <summary>true면 짧은 간격으로 두 번 눌러야 발동. Ctrl+C 조합은 항상 두 번 누르기.</summary>
     public bool HotkeyDoublePress { get; set; } = true;
 
+    /// <summary>팝업 테마: "System"(Windows 설정 따름) | "Light" | "Dark".</summary>
+    public string Theme { get; set; } = "System";
+
+    /// <summary>시작 시 하루 한 번 GitHub Releases에서 새 버전을 확인할지 여부.</summary>
+    public bool AutoUpdateCheck { get; set; } = true;
+
+    /// <summary>마지막 업데이트 확인 시각(UTC) — 과도한 API 호출을 막는다.</summary>
+    public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
+
     public bool RunAtStartup { get; set; } = false;
     public bool PopupNearCursor { get; set; } = true;
     public bool CloseOnFocusLoss { get; set; } = true;

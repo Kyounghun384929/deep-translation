@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Deep Translation"
-        Width="560" Height="500" MinWidth="420" MinHeight="340"
+        Width="460" Height="380" MinWidth="360" MinHeight="280"
         WindowStyle="None" ResizeMode="CanResize"
-        Background="{StaticResource BgBrush}"
+        Background="{DynamicResource BgBrush}"
         ShowInTaskbar="False" Topmost="True" ShowActivated="True"
         FontFamily="Segoe UI, Malgun Gothic"
         Deactivated="Window_Deactivated"
@@ -15,7 +15,7 @@
                       GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
 
-    <Grid Margin="16,10,16,12">
+    <Grid Margin="12,8,12,10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -26,17 +26,17 @@
         </Grid.RowDefinitions>
 
         <!-- 헤더 (드래그로 이동) -->
-        <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,8"
+        <Grid Grid.Row="0" Background="Transparent" Margin="0,0,0,6"
               MouseLeftButtonDown="Header_MouseLeftButtonDown">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="🌐" FontSize="14" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                <TextBlock Text="Deep Translation" FontSize="13" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text="🌐" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBlock Text="Deep Translation" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <ToggleButton x:Name="PinToggle" Style="{StaticResource IconToggle}" Content="📌"
                               ToolTip="고정 — 다른 곳을 클릭해도 닫히지 않음"/>
-                <Button Style="{StaticResource IconButton}" Content="⚙" FontSize="14"
+                <Button Style="{StaticResource IconButton}" Content="⚙" FontSize="13"
                         ToolTip="설정" Click="Settings_Click"/>
                 <Button Style="{StaticResource IconButton}" Content="✕"
                         ToolTip="닫기 (Esc)" Click="Close_Click"/>
@@ -44,9 +44,9 @@
         </Grid>
 
         <!-- 원문 -->
-        <Grid Grid.Row="1" Margin="0,0,0,5">
-            <TextBlock Text="원문 · 자동 감지" FontSize="12"
-                       Foreground="{StaticResource SubTextBrush}" VerticalAlignment="Center"/>
+        <Grid Grid.Row="1" Margin="0,0,0,4">
+            <TextBlock Text="원문 · 자동 감지" FontSize="11"
+                       Foreground="{DynamicResource SubTextBrush}" VerticalAlignment="Center"/>
             <Button Style="{StaticResource SubtleButton}" Content="다시 번역"
                     HorizontalAlignment="Right" ToolTip="캐시를 무시하고 새로 생성 (Ctrl+Enter)"
                     Click="Retranslate_Click"/>
@@ -55,10 +55,10 @@
                  TextChanged="SourceBox_TextChanged"/>
 
         <!-- 번역 결과 -->
-        <Grid Grid.Row="3" Margin="0,10,0,5">
+        <Grid Grid.Row="3" Margin="0,8,0,4">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="번역 →" FontSize="12" Foreground="{StaticResource SubTextBrush}"
-                           VerticalAlignment="Center" Margin="0,0,7,0"/>
+                <TextBlock Text="번역 →" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox x:Name="TargetCombo" Style="{StaticResource DarkCombo}" MinWidth="112"
                           ToolTip="번역 대상 언어 — 바꾸면 즉시 다시 번역합니다"
                           SelectionChanged="TargetCombo_SelectionChanged"/>
@@ -67,16 +67,16 @@
                     HorizontalAlignment="Right" VerticalAlignment="Center" Click="Copy_Click"/>
         </Grid>
         <TextBox x:Name="OutputBox" Grid.Row="4" Style="{StaticResource DarkTextBox}"
-                 IsReadOnly="True" IsUndoEnabled="False" FontSize="15"/>
+                 IsReadOnly="True" IsUndoEnabled="False" FontSize="14"/>
 
         <!-- 상태 표시줄 -->
-        <Grid Grid.Row="5" Margin="0,9,0,0">
-            <TextBlock x:Name="StatusText" FontSize="12" Foreground="{StaticResource SubTextBrush}"
+        <Grid Grid.Row="5" Margin="0,7,0,0">
+            <TextBlock x:Name="StatusText" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
                        Text="텍스트를 선택하고 Ctrl+C, C를 누르세요" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" Margin="0,0,180,0"/>
-            <TextBlock x:Name="ModelLabel" FontSize="12" Foreground="{StaticResource SubTextBrush}"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,150,0"/>
+            <TextBlock x:Name="ModelLabel" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
                        Text="" HorizontalAlignment="Right" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" MaxWidth="170"/>
+                       TextTrimming="CharacterEllipsis" MaxWidth="140"/>
         </Grid>
     </Grid>
 </Window>

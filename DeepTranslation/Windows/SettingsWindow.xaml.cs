@@ -18,6 +18,10 @@ public partial class SettingsWindow : Window
     private static readonly string[] IdleChoices = { "사용 안 함", "3분 후", "5분 후", "10분 후" };
     private static readonly int[] IdleMinuteValues = { 0, 3, 5, 10 };
 
+    // 테마 선택지 (표시 문자열 ↔ 설정값)
+    private static readonly string[] ThemeChoices = { "시스템 기본", "라이트", "다크" };
+    private static readonly string[] ThemeValues = { "System", "Light", "Dark" };
+
     private CancellationTokenSource? _downloadCts;
     private bool _suppressModelChanged;
 
@@ -54,6 +58,10 @@ public partial class SettingsWindow : Window
 
         GlossaryBox.Text = s.Glossary;
 
+        foreach (var c in ThemeChoices) ThemeBox.Items.Add(c);
+        int themeIdx = Array.IndexOf(ThemeValues, s.Theme);
+        ThemeBox.SelectedIndex = themeIdx >= 0 ? themeIdx : 0; // 알 수 없는 값이면 시스템 기본
+
         ModelBox.Items.Add(AutoModel);
         if (!string.IsNullOrWhiteSpace(s.Model))
         {
@@ -72,6 +80,7 @@ public partial class SettingsWindow : Window
 
         HotkeyCheck.IsChecked = s.HotkeyEnabled;
         StartupCheck.IsChecked = s.RunAtStartup;
+        UpdateCheck.IsChecked = s.AutoUpdateCheck;
         CursorCheck.IsChecked = s.PopupNearCursor;
         FocusCheck.IsChecked = s.CloseOnFocusLoss;
 
@@ -301,10 +310,12 @@ public partial class SettingsWindow : Window
         s.TargetLanguage = TargetBox.SelectedItem as string ?? "한국어";
         s.KoreanSourceTarget = KoreanSourceBox.SelectedItem as string ?? "영어";
         s.Glossary = GlossaryBox.Text;
+        s.Theme = ThemeValues[Math.Max(0, ThemeBox.SelectedIndex)];
         s.HotkeyGesture = _gesture.ToString();
         s.HotkeyDoublePress = DoublePressCheck.IsChecked == true || _gesture.IsCopyGesture;
         s.HotkeyEnabled = HotkeyCheck.IsChecked == true;
         s.RunAtStartup = StartupCheck.IsChecked == true;
+        s.AutoUpdateCheck = UpdateCheck.IsChecked == true;
         s.PopupNearCursor = CursorCheck.IsChecked == true;
         s.CloseOnFocusLoss = FocusCheck.IsChecked == true;
 

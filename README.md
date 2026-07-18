@@ -59,8 +59,10 @@ HyperCLOVA X SEED 1.5B(경량). 라이선스 조건은 설정 창에 표시됩�
 | 직접 입력 번역 | 트레이 아이콘 더블클릭 → 원문 입력 |
 | 용어집 | 설정 → 용어집에 `원어 = 번역어`를 한 줄에 하나씩 입력 (예: `LM Studio = LM Studio`) |
 | 모델 변경/삭제 | 설정 → 번역 엔진에서 모델 선택·다운로드·삭제 (받다 만 파일은 이어받기) |
-| 설정 | 트레이 아이콘 우클릭 → 설정 (번역 엔진, 모델, 대상 언어, 용어집, 자동 실행 등) |
+| 테마 변경 | 설정 → 번역 창 테마 (시스템 기본 / 라이트 / 다크 — 기본값은 Windows 설정 따름) |
+| 설정 | 트레이 아이콘 우클릭 → 설정 (번역 엔진, 모델, 대상 언어, 용어집, 테마, 자동 실행 등) |
 | 자동 시작 On/Off | 트레이 아이콘 우클릭 → **Windows 시작 시 자동 실행** (체크 표시 = 켜짐, 즉시 반영) |
+| 업데이트 | 하루 1회 자동 확인(설정에서 끔 가능) 또는 트레이 우클릭 → **업데이트 확인**. 새 버전이 있으면 GitHub Releases에서 설치 프로그램을 받아 설치합니다 (저장소가 public일 때 동작) |
 | 종료 | 트레이 아이콘 우클릭 → 종료 |
 
 LM Studio 모드에서 모델을 지정하지 않으면(기본값: 자동) 서버에 **이미 로드된 모델을 우선** 사용하고,
@@ -110,8 +112,10 @@ DeepTranslation/            WPF 앱 (.NET 8, C#)
     TranslationService.cs   모델 자동 선택·재시도, 스트리밍 스로틀, think·마커 필터
     LanguageMaps.cs         한글 감지, 대상 언어 결정, 시스템 프롬프트(언어 마커·용어집)
     MarkerFilter.cs         출력 첫 줄의 언어 마커(@@언어@@) 감지·제거
+    ThemeManager.cs         라이트/다크 테마 팔레트 적용 (시스템 설정 추적)
+    UpdateChecker.cs        GitHub Releases 새 버전 확인
   Windows/
-    TranslationWindow.xaml  다크 테마 번역 팝업
+    TranslationWindow.xaml  번역 팝업 (라이트/다크 테마)
     SettingsWindow.xaml     설정 창
 installer/setup.iss         Inno Setup 스크립트
 tools/make-icon.ps1         앱 아이콘 생성
