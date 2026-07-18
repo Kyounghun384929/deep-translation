@@ -22,6 +22,8 @@ public partial class SettingsWindow : Window
     private static readonly string[] ThemeChoices = { "시스템 기본", "라이트", "다크" };
     private static readonly string[] ThemeValues = { "System", "Light", "Dark" };
 
+    // 엔진 백엔드 선택지 (표시 문자열 ↔ 설정값)
+
     private CancellationTokenSource? _downloadCts;
     private bool _suppressModelChanged;
 
@@ -49,9 +51,7 @@ public partial class SettingsWindow : Window
         EmbeddedRadio.IsChecked = embedded;
         LmStudioRadio.IsChecked = !embedded;
         RefreshEmbeddedUi();
-
-        // SAC이 켜진 PC에서는 내장 엔진(무서명 llama-server)이 차단되므로 미리 경고한다 (창 생성 시 1회 판정)
-        if (EmbeddedEngine.IsSmartAppControlOn) SacWarning.Visibility = Visibility.Visible;
+        RefreshBackendInfo();
 
         TargetBox.ItemsSource = LanguageMaps.TargetChoices;
         TargetBox.SelectedItem = LanguageMaps.TargetChoices.Contains(s.TargetLanguage) ? s.TargetLanguage : "한국어";
@@ -134,6 +134,17 @@ public partial class SettingsWindow : Window
     {
         if (_suppressModelChanged) return;
         RefreshEmbeddedUi();
+    }
+
+    /// <summary>
+    /// 자동 선택된 내장 백엔드를 읽기 전용으로 안내한다 (사용자 선택 없음).
+    /// SAC 켜짐이면 서명된 Ollama, 꺼짐이면 경량 llama.cpp를 자동으로 사용한다.
+    /// </summary>
+    private void RefreshBackendInfo()
+    {
+        BackendInfo.Text = EmbeddedEngine.IsSmartAppControlOn
+            ? "엔진: 자동 — 스마트 앱 컨트롤이 감지되어 서명된 Ollama 엔진을 사용합니다."
+            : "엔진: 자동 — 경량 llama.cpp 엔진을 사용합니다.";
     }
 
     /// <summary>선택 모델 기준으로 라이선스·버튼·상태 표시를 갱신한다.</summary>

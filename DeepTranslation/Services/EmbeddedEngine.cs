@@ -17,10 +17,8 @@ namespace DeepTranslation.Services;
 /// </summary>
 public static class EmbeddedEngine
 {
-    // llama.cpp 릴리스 태그 고정 — zip URL·폴더 이름에 함께 쓰인다.
-    // b9982: 최근 릴리스 중 다운로드 최다(4,400+회) — 스마트 앱 컨트롤의 클라우드 평판 판정을
-    // 통과할 가능성을 높이기 위해 갓 나온 태그 대신 배포 이력이 쌓인 태그를 쓴다 (v1.6.2 실험).
-    private const string LlamaTag = "b9982";
+    // llama.cpp 릴리스 태그 고정 — zip URL·폴더 이름에 함께 쓰인다
+    private const string LlamaTag = "b10066";
     private const string VulkanZipUrl =
         $"https://github.com/ggml-org/llama.cpp/releases/download/{LlamaTag}/llama-{LlamaTag}-bin-win-vulkan-x64.zip";
     private const string CpuZipUrl =

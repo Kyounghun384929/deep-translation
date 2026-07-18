@@ -22,14 +22,17 @@ public sealed class TranslationService
         CancellationToken ct, bool bypassCache = false, Action<string>? onStatus = null)
     {
         bool embedded = settings.EngineMode == "Embedded";
+        // 내장 모드에서 실제 사용할 백엔드(Ollama/llama.cpp) — 결과가 섞이지 않게 캐시·기동에 함께 쓴다
+        bool useOllama = embedded && OllamaEngine.UseOllamaBackend;
         var (targetDisplay, targetEnglish) = LanguageMaps.ResolveTarget(settings, text);
         // 폴백 언어: 대상이 한국어이면 설정된 한국어-원문 대상, 아니면 한국어.
         string fallbackEnglish = targetEnglish == "Korean"
             ? LanguageMaps.ToEnglish(settings.KoreanSourceTarget)
             : "Korean";
         // 내장 모드는 서버 URL·LM Studio 모델명이 무관하므로 엔진 식별자로 캐시 키를 만든다
+        // (백엔드도 반영 — 같은 GGUF라도 llama.cpp와 Ollama 결과를 분리한다)
         string cacheKey = LlmGuard.MakeKey(
-            embedded ? "embedded" : settings.ServerUrl,
+            embedded ? (useOllama ? "embedded-ollama" : "embedded-llamacpp") : settings.ServerUrl,
             embedded ? settings.EmbeddedModelId : settings.Model,
             targetEnglish, fallbackEnglish, settings.Glossary, settings.Temperature, text);
 
@@ -52,10 +55,19 @@ public sealed class TranslationService
             List<string> candidates;
             if (embedded)
             {
-                // 내장 엔진: 필요 시 llama-server를 기동하고 카탈로그 Id 하나만 시도한다
-                serverUrl = await EmbeddedEngine.EnsureRunningAsync(settings, onStatus, ct);
+                // 내장 엔진: 필요 시 서버를 기동하고 후보 모델 하나만 시도한다
+                if (useOllama)
+                {
+                    // Ollama는 "dt-"를 붙인 모델명으로 기존 GGUF를 재활용해 등록·기동한다
+                    serverUrl = await OllamaEngine.EnsureRunningAsync(settings, onStatus, ct);
+                    candidates = new List<string> { "dt-" + settings.EmbeddedModelId };
+                }
+                else
+                {
+                    serverUrl = await EmbeddedEngine.EnsureRunningAsync(settings, onStatus, ct);
+                    candidates = new List<string> { settings.EmbeddedModelId };
+                }
                 onStatus?.Invoke("번역 중…"); // 로딩 상태 표시를 되돌린다
-                candidates = new List<string> { settings.EmbeddedModelId };
             }
             else if (!string.IsNullOrWhiteSpace(settings.Model))
             {
@@ -118,7 +130,12 @@ public sealed class TranslationService
                     onText(final);
                     string markerLang = marker.MarkerLanguage; // 파싱된 실제 번역 언어(영어명), 실패 시 ""
                     LlmGuard.Store(cacheKey, final, model, markerLang);
-                    if (embedded) EmbeddedEngine.NotifyActivity(); // 유휴 언로드 타이머 리셋
+                    // 사용된 엔진의 유휴 언로드 타이머를 리셋한다
+                    if (embedded)
+                    {
+                        if (useOllama) OllamaEngine.NotifyActivity();
+                        else EmbeddedEngine.NotifyActivity();
+                    }
                     return new Result(model, ResolveDisplay(markerLang, targetDisplay), final);
                 }
                 catch (LmStudioException ex)

@@ -16,9 +16,8 @@
         </StackPanel>
 
         <StackPanel x:Name="EmbeddedPanel">
-            <TextBlock x:Name="SacWarning" Foreground="Red" FontSize="12" TextWrapping="Wrap"
-                       Margin="0,0,0,8" Visibility="Collapsed"
-                       Text="⚠ 이 PC는 스마트 앱 컨트롤이 켜져 있어 내장 엔진이 차단됩니다. LM Studio 모드를 사용하세요."/>
+            <TextBlock x:Name="BackendInfo" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                       Margin="0,0,0,8"/>
             <ComboBox x:Name="EmbeddedModelBox" Padding="6,5" VerticalContentAlignment="Center"
                       SelectionChanged="EmbeddedModel_Changed"/>
             <TextBlock x:Name="EmbeddedLicense" Foreground="Gray" FontSize="12" TextWrapping="Wrap"

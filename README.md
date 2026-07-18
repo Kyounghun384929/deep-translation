@@ -98,12 +98,21 @@ LM Studio 모드에서 모델을 지정하지 않으면(기본값: 자동) 서�
 설정 파일: `%APPDATA%\DeepTranslation\settings.json`
 모델·엔진 파일: `%LOCALAPPDATA%\DeepTranslation\models`, `%LOCALAPPDATA%\DeepTranslation\llama`
 
+## 엔진 백엔드 (llama.cpp / Ollama)
+
+내장 번역 엔진은 두 백엔드를 지원하며, 설정 → 번역 엔진 → **엔진 백엔드**에서 고를 수 있습니다
+(기본값 **자동**). **스마트 앱 컨트롤(SAC)이 켜진 PC에서는 무서명 llama.cpp가 차단되므로,
+자동 모드가 서명된 Ollama 엔진으로 자동 전환**합니다. Ollama 백엔드는 공식 배포본에서 Vulkan+CPU
+추론에 필요한 최소 파일(약 119MB)만 내려받아 앱이 직접 기동·관리하며, 이미 받아 둔 같은 GGUF 모델을
+재활용합니다. SAC이 꺼진 PC에서는 더 가벼운 llama.cpp가 기본입니다. 개발·테스트를 위해 백엔드를
+직접 지정할 수도 있습니다.
+
 ## 알려진 제한 사항
 
-**스마트 앱 컨트롤(SAC)이 켜진 PC**에서는 내장 번역 엔진(llama-server.exe, 무서명)의 실행이
-차단됩니다. SAC은 앱별 예외 등록을 지원하지 않으므로, **LM Studio 모드**(서명된 앱이라 차단되지
-않음)를 사용하거나 Windows 설정 → 개인 정보 및 보안 → Windows 보안 → 앱 및 브라우저 컨트롤에서
-SAC을 꺼야 합니다. 설정 창과 오류 메시지에서도 같은 안내가 표시됩니다.
+**스마트 앱 컨트롤(SAC)이 켜진 PC**에서 백엔드를 **llama.cpp로 강제**하면 무서명
+llama-server.exe의 실행이 차단됩니다. 이때는 **자동** 또는 **Ollama**(서명된 엔진) 백엔드를
+사용하거나, **LM Studio 모드**로 전환하거나, Windows 설정 → 개인 정보 및 보안 → Windows 보안 →
+앱 및 브라우저 컨트롤에서 SAC을 끄면 됩니다. 설정 창과 오류 메시지에도 같은 안내가 표시됩니다.
 
 ## 구조
 
@@ -114,6 +123,7 @@ DeepTranslation/            WPF 앱 (.NET 8, C#)
     KeyboardHookService.cs  저수준 키보드 훅 — Ctrl+C 두 번 감지
     LmStudioClient.cs       OpenAI 호환 API 클라이언트 (SSE 스트리밍)
     EmbeddedEngine.cs       내장 엔진 — llama-server 기동/폴백/유휴 언로드
+    OllamaEngine.cs         내장 엔진(대안) — 슬림 Ollama 추출/기동/GGUF 재활용/유휴 언로드 (SAC 대응)
     ModelCatalog.cs         내장 GGUF 모델 카탈로그 (4종)
     ModelDownloader.cs      대용량 다운로드 (.part 이어받기)
     TranslationService.cs   모델 자동 선택·재시도, 스트리밍 스로틀, think·마커 필터

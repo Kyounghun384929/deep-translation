@@ -292,8 +292,22 @@ public partial class App : Application
         }
         StartupManager.Sync(Settings.RunAtStartup);
         UpdateTrayStartupCheck();
-        // 엔진 모드가 바뀌었거나 내장 모델 선택이 바뀌었으면 실행 중인 llama-server를 내린다
-        EmbeddedEngine.ApplySettings(Settings);
+        // 엔진 설정 반영 — 사용하지 않게 된 백엔드는 내리고, 활성 백엔드에 모델·유휴 변경을 반영한다
+        if (Settings.EngineMode != "Embedded")
+        {
+            EmbeddedEngine.Stop();
+            OllamaEngine.Stop();
+        }
+        else if (OllamaEngine.UseOllamaBackend)
+        {
+            EmbeddedEngine.Stop();
+            OllamaEngine.ApplySettings(Settings);
+        }
+        else
+        {
+            OllamaEngine.Stop();
+            EmbeddedEngine.ApplySettings(Settings);
+        }
     }
 
     /// <summary>트레이 메뉴에서 자동 시작을 즉시 켜고 끈다.</summary>
@@ -322,6 +336,7 @@ public partial class App : Application
         _hook?.Dispose();
         _window?.ForceClose();
         EmbeddedEngine.Stop(); // 내장 엔진 프로세스 정리
+        OllamaEngine.Stop();
         Shutdown();
     }
 
@@ -335,7 +350,8 @@ public partial class App : Application
         _hook?.Dispose();
         _mutex?.Dispose();
         ThemeManager.Shutdown(); // SystemEvents 구독 해제
-        EmbeddedEngine.Stop(); // 모든 종료 경로에서 llama-server가 남지 않도록 보장
+        EmbeddedEngine.Stop(); // 모든 종료 경로에서 llama-server/ollama가 남지 않도록 보장
+        OllamaEngine.Stop();
         base.OnExit(e);
     }
 
