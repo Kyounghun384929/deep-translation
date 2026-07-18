@@ -318,24 +318,41 @@ public static class OllamaEngine
 
     // ---- 바이너리 준비 (슬림 추출) ----
 
-    /// <summary>ollama.exe 경로를 반환한다. 없으면 공식 zip을 최초 1회 내려받아 슬림 집합만 푼다.</summary>
+    /// <summary>엔진 바이너리(ollama.exe)가 이미 설치돼 있는지 여부.</summary>
+    public static bool IsBinaryInstalled => FindOllamaExe(BinDir) != null;
+
+    /// <summary>
+    /// 엔진 바이너리를 내려받아 설치한다 (설정 창의 사전 다운로드용, 이미 설치돼 있으면 즉시 반환).
+    /// 공식 zip(약 1.4GB)을 받아 슬림 집합(약 119MB)만 풀고 zip은 삭제한다.
+    /// onProgress에는 ModelDownloader의 (받은 바이트, 전체 바이트)가 그대로 전달된다.
+    /// </summary>
+    public static async Task DownloadBinaryAsync(Action<long, long>? onProgress, CancellationToken ct)
+    {
+        if (IsBinaryInstalled) return;
+
+        Directory.CreateDirectory(BinDir);
+        string zipPath = Path.Combine(OllamaRootDir, "ollama-windows-amd64.zip");
+        await ModelDownloader.DownloadAsync(OllamaZipUrl, zipPath, 0, onProgress, ct);
+
+        // 추출은 CPU/IO 작업 — UI 스레드에서 호출돼도 창이 멎지 않게 스레드 풀에서 수행한다
+        await Task.Run(() => ExtractSlim(zipPath, BinDir), ct);
+        try { File.Delete(zipPath); } catch { }
+
+        if (!IsBinaryInstalled)
+            throw new LmStudioException("다운로드한 번역 엔진에서 ollama.exe를 찾지 못했습니다.");
+    }
+
+    /// <summary>ollama.exe 경로를 반환한다. 없으면 최초 1회 내려받는다 (번역 경로의 문자열 상태 어댑터).</summary>
     private static async Task<string> EnsureBinaryAsync(Action<string>? onStatus, CancellationToken ct)
     {
         string? exe = FindOllamaExe(BinDir);
         if (exe != null) return exe;
 
-        Directory.CreateDirectory(BinDir);
-        string zipPath = Path.Combine(OllamaRootDir, "ollama-windows-amd64.zip");
         onStatus?.Invoke("번역 엔진 다운로드 중… (1회)");
-        await ModelDownloader.DownloadAsync(OllamaZipUrl, zipPath, 0,
+        await DownloadBinaryAsync(
             (received, _) => onStatus?.Invoke($"번역 엔진 다운로드 중… {received / 1048576} MB (1회)"), ct);
-
         onStatus?.Invoke("번역 엔진 준비 중…");
-        ExtractSlim(zipPath, BinDir);
-        try { File.Delete(zipPath); } catch { }
-
-        return FindOllamaExe(BinDir)
-            ?? throw new LmStudioException("다운로드한 번역 엔진에서 ollama.exe를 찾지 못했습니다.");
+        return FindOllamaExe(BinDir)!; // DownloadBinaryAsync가 존재를 보장한다
     }
 
     // GPU 벤더별 대용량 백엔드(cuda_v*·rocm·mlx)는 건너뛰고 Vulkan+CPU 추론에 필요한 파일만 푼다.

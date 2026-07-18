@@ -279,25 +279,47 @@ public static class EmbeddedEngine
 
     // ---- 바이너리 준비 ----
 
-    /// <summary>llama-server.exe 경로를 반환한다. 없으면 릴리스 zip을 최초 1회 내려받아 푼다.</summary>
-    private static async Task<string> EnsureBinaryAsync(bool cpu, Action<string>? onStatus, CancellationToken ct)
-    {
-        string dir = Path.Combine(LlamaDir, LlamaTag, cpu ? "cpu" : "vulkan");
-        string? exe = FindServerExe(dir);
-        if (exe != null) return exe;
+    private static string BinDir(bool cpu) => Path.Combine(LlamaDir, LlamaTag, cpu ? "cpu" : "vulkan");
 
+    /// <summary>엔진 바이너리 설치 여부 (Vulkan 빌드 기준 — CPU 폴백 빌드는 필요 시 자동 다운로드).</summary>
+    public static bool IsBinaryInstalled => FindServerExe(BinDir(cpu: false)) != null;
+
+    /// <summary>
+    /// 엔진 바이너리(Vulkan 빌드, 약 33MB)를 내려받아 설치한다
+    /// (설정 창의 사전 다운로드용, 이미 설치돼 있으면 즉시 반환).
+    /// onProgress에는 ModelDownloader의 (받은 바이트, 전체 바이트)가 그대로 전달된다.
+    /// </summary>
+    public static async Task DownloadBinaryAsync(Action<long, long>? onProgress, CancellationToken ct)
+    {
+        if (!IsBinaryInstalled) await DownloadBuildAsync(cpu: false, onProgress, ct);
+    }
+
+    // 지정 빌드의 zip을 내려받아 풀고 llama-server.exe 경로를 반환한다
+    private static async Task<string> DownloadBuildAsync(bool cpu, Action<long, long>? onProgress, CancellationToken ct)
+    {
+        string dir = BinDir(cpu);
         Directory.CreateDirectory(dir);
         string zipPath = dir + ".zip";
-        onStatus?.Invoke("번역 엔진 다운로드 중… (1회)");
-        await ModelDownloader.DownloadAsync(cpu ? CpuZipUrl : VulkanZipUrl, zipPath, 0,
-            (received, _) => onStatus?.Invoke($"번역 엔진 다운로드 중… {received / 1048576} MB (1회)"), ct);
+        await ModelDownloader.DownloadAsync(cpu ? CpuZipUrl : VulkanZipUrl, zipPath, 0, onProgress, ct);
 
-        // zip 루트 구조가 릴리스마다 다를 수 있어 해제 후 exe를 탐색해 경로를 확정한다
-        ZipFile.ExtractToDirectory(zipPath, dir, overwriteFiles: true);
+        // zip 루트 구조가 릴리스마다 다를 수 있어 해제 후 exe를 탐색해 경로를 확정한다.
+        // 추출은 CPU/IO 작업 — UI 스레드에서 호출돼도 창이 멎지 않게 스레드 풀에서 수행한다.
+        await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, dir, overwriteFiles: true), ct);
         try { File.Delete(zipPath); } catch { }
 
         return FindServerExe(dir)
             ?? throw new LmStudioException("다운로드한 번역 엔진에서 llama-server.exe를 찾지 못했습니다.");
+    }
+
+    /// <summary>llama-server.exe 경로를 반환한다. 없으면 릴리스 zip을 최초 1회 내려받아 푼다.</summary>
+    private static async Task<string> EnsureBinaryAsync(bool cpu, Action<string>? onStatus, CancellationToken ct)
+    {
+        string? exe = FindServerExe(BinDir(cpu));
+        if (exe != null) return exe;
+
+        onStatus?.Invoke("번역 엔진 다운로드 중… (1회)");
+        return await DownloadBuildAsync(cpu,
+            (received, _) => onStatus?.Invoke($"번역 엔진 다운로드 중… {received / 1048576} MB (1회)"), ct);
     }
 
     private static string? FindServerExe(string dir)

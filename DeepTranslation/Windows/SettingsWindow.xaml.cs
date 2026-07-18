@@ -22,9 +22,8 @@ public partial class SettingsWindow : Window
     private static readonly string[] ThemeChoices = { "시스템 기본", "라이트", "다크" };
     private static readonly string[] ThemeValues = { "System", "Light", "Dark" };
 
-    // 엔진 백엔드 선택지 (표시 문자열 ↔ 설정값)
-
     private CancellationTokenSource? _downloadCts;
+    private CancellationTokenSource? _engineDownloadCts; // 모델 다운로드와 독립 (동시 진행 가능)
     private bool _suppressModelChanged;
 
     public SettingsWindow()
@@ -52,6 +51,7 @@ public partial class SettingsWindow : Window
         LmStudioRadio.IsChecked = !embedded;
         RefreshEmbeddedUi();
         RefreshBackendInfo();
+        RefreshEngineUi();
 
         TargetBox.ItemsSource = LanguageMaps.TargetChoices;
         TargetBox.SelectedItem = LanguageMaps.TargetChoices.Contains(s.TargetLanguage) ? s.TargetLanguage : "한국어";
@@ -145,6 +145,68 @@ public partial class SettingsWindow : Window
         BackendInfo.Text = EmbeddedEngine.IsSmartAppControlOn
             ? "엔진: 자동 — 스마트 앱 컨트롤이 감지되어 서명된 Ollama 엔진을 사용합니다."
             : "엔진: 자동 — 경량 llama.cpp 엔진을 사용합니다.";
+    }
+
+    /// <summary>활성 백엔드의 엔진 설치 상태에 맞춰 사전 다운로드 버튼·상태 텍스트를 갱신한다.</summary>
+    private void RefreshEngineUi()
+    {
+        bool ollama = OllamaEngine.UseOllamaBackend;
+        bool installed = ollama ? OllamaEngine.IsBinaryInstalled : EmbeddedEngine.IsBinaryInstalled;
+        bool downloading = _engineDownloadCts != null;
+
+        EngineDownloadButton.Content = downloading ? "취소" : "엔진 다운로드";
+        EngineDownloadButton.Visibility = installed && !downloading ? Visibility.Collapsed : Visibility.Visible;
+        if (downloading) return; // 진행 중 텍스트는 진행 콜백이 갱신한다
+
+        EngineStatus.Text = installed
+            ? "엔진 다운로드됨 ✓"
+            : ollama
+                ? "엔진이 아직 다운로드되지 않았습니다 (약 1.4GB 다운로드 후 119MB만 저장, 첫 번역 시 자동 진행)"
+                : "엔진이 아직 다운로드되지 않았습니다 (약 33MB, 첫 번역 시 자동 진행)";
+    }
+
+    private async void EngineDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engineDownloadCts != null) // 진행 중이면 버튼은 [취소]로 동작
+        {
+            _engineDownloadCts.Cancel();
+            return;
+        }
+
+        var cts = _engineDownloadCts = new CancellationTokenSource();
+        EngineDownloadBar.Visibility = Visibility.Visible;
+        EngineDownloadBar.Value = 0;
+        RefreshEngineUi();
+        string? message = null; // 취소·실패 안내 (완료 후 상태 갱신에 덮이지 않게 마지막에 표시)
+        try
+        {
+            void OnProgress(long received, long total)
+            {
+                double pct = total > 0 ? received * 100.0 / total : 0;
+                EngineDownloadBar.Value = pct;
+                EngineStatus.Text = $"{received / 1048576.0:0} / {total / 1048576.0:0} MB ({pct:0}%)";
+            }
+            if (OllamaEngine.UseOllamaBackend)
+                await OllamaEngine.DownloadBinaryAsync(OnProgress, cts.Token);
+            else
+                await EmbeddedEngine.DownloadBinaryAsync(OnProgress, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            message = "다운로드를 중단했습니다. 다시 시작하면 이어받습니다.";
+        }
+        catch (Exception ex)
+        {
+            message = "다운로드 실패: " + ex.Message;
+        }
+        finally
+        {
+            _engineDownloadCts = null;
+            cts.Dispose();
+            EngineDownloadBar.Visibility = Visibility.Collapsed;
+            RefreshEngineUi();
+            if (message != null) EngineStatus.Text = message;
+        }
     }
 
     /// <summary>선택 모델 기준으로 라이선스·버튼·상태 표시를 갱신한다.</summary>
@@ -248,6 +310,7 @@ public partial class SettingsWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _downloadCts?.Cancel(); // 창이 닫히면 진행 중 다운로드 중단 (.part가 남아 이어받기 가능)
+        _engineDownloadCts?.Cancel();
         base.OnClosed(e);
     }
 

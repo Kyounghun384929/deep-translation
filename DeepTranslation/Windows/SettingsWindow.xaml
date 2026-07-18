@@ -17,7 +17,19 @@
 
         <StackPanel x:Name="EmbeddedPanel">
             <TextBlock x:Name="BackendInfo" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
-                       Margin="0,0,0,8"/>
+                       Margin="0,0,0,4"/>
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="EngineDownloadButton" Grid.Column="0" Content="엔진 다운로드" Padding="12,5"
+                        Click="EngineDownload_Click"/>
+                <ProgressBar x:Name="EngineDownloadBar" Grid.Column="1" Height="10" Margin="8,0"
+                             VerticalAlignment="Center" Visibility="Collapsed"/>
+            </Grid>
+            <TextBlock x:Name="EngineStatus" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                       Margin="0,3,0,10"/>
             <ComboBox x:Name="EmbeddedModelBox" Padding="6,5" VerticalContentAlignment="Center"
                       SelectionChanged="EmbeddedModel_Changed"/>
             <TextBlock x:Name="EmbeddedLicense" Foreground="Gray" FontSize="12" TextWrapping="Wrap"
