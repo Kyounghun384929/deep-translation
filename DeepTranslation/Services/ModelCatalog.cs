@@ -25,7 +25,11 @@ public static class ModelCatalog
 
     public static readonly IReadOnlyList<ModelInfo> All = new[]
     {
-        new ModelInfo("qwen3-4b-instruct-2507", "Qwen3 4B Instruct (권장)",
+        new ModelInfo("qwen3.5-4b", "Qwen3.5 4B (권장)",
+            "Qwen3.5-4B-Q4_K_M.gguf",
+            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+            2740937888, "Apache-2.0 · 상업 이용 자유"),
+        new ModelInfo("qwen3-4b-instruct-2507", "Qwen3 4B Instruct",
             "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             2497281120, "Apache-2.0 · 상업 이용 자유"),

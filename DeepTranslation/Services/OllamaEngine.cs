@@ -234,6 +234,8 @@ public static class OllamaEngine
         if (File.Exists(ManifestPath(ollamaModel))) return; // 이미 등록됨 — 재생성 불필요
 
         onStatus?.Invoke("모델 등록 중…");
+        // ponytail: qwen3.5는 thinking 기본 켜짐 — llama.cpp 경로는 chat-template-kwargs로 끄지만
+        // Ollama 경로(SAC PC)는 미검증. SAC PC에서 qwen3.5가 무응답이면 여기서 think 끄기를 구현할 것
         // 임시 Modelfile: 기존에 내려받은 GGUF를 그대로 가져온다(create가 blob 저장소로 복사)
         string modelfile = Path.Combine(OllamaRootDir, "Modelfile.tmp");
         await File.WriteAllTextAsync(modelfile, $"FROM \"{model.FilePath}\"\n", ct);

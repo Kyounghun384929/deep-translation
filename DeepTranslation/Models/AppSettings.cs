@@ -10,7 +10,7 @@ public class AppSettings
     public string EngineMode { get; set; } = "Embedded";
 
     /// <summary>내장 엔진에서 사용할 모델의 카탈로그 Id (ModelCatalog 참조).</summary>
-    public string EmbeddedModelId { get; set; } = "qwen3-4b-instruct-2507";
+    public string EmbeddedModelId { get; set; } = "qwen3.5-4b";
 
     /// <summary>내장 엔진 유휴 언로드 대기 시간(분). 0이면 언로드하지 않음.</summary>
     public int IdleUnloadMinutes { get; set; } = 5;

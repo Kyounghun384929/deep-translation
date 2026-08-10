@@ -188,6 +188,10 @@ public static class EmbeddedEngine
         int port = GetFreePort();
         string args = $"-m \"{model.FilePath}\" --host 127.0.0.1 --port {port} " +
                       $"-ngl {ngl} --ctx-size 4096 -a {model.Id} --no-webui";
+        // qwen3.5는 thinking이 기본 켜져 컨텍스트를 소진할 때까지 생각만 한다 — 템플릿에서 꺼야 즉답한다
+        // (--reasoning-budget 0만으로는 안 멈춤, llama-server는 chat-template-kwargs가 정상 동작)
+        if (model.Id.StartsWith("qwen3.5"))
+            args += " --jinja --chat-template-kwargs \"{\\\"enable_thinking\\\":false}\"";
 
         var proc = new Process
         {
