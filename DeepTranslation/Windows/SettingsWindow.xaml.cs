@@ -32,6 +32,7 @@ public partial class SettingsWindow : Window
 
         var s = App.Settings;
         ServerBox.Text = s.ServerUrl;
+        ApiKeyBox.Text = s.ApiKey;
 
         // 번역 엔진 섹션
         _suppressModelChanged = true;
@@ -94,14 +95,17 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            var current = ModelBox.SelectedItem as string;
+            var current = ModelBox.Text;
             // 연결 테스트·새로고침은 항상 서버에 최신 상태를 다시 물어본다
-            var models = await _client.GetModelsAsync(ServerBox.Text, CancellationToken.None, bypassCache: true);
+            var models = await _client.GetModelsAsync(ServerBox.Text, CancellationToken.None, bypassCache: true,
+                apiKey: ApiKeyBox.Text);
 
             ModelBox.Items.Clear();
             ModelBox.Items.Add(AutoModel);
             foreach (var m in models) ModelBox.Items.Add(m);
-            ModelBox.SelectedItem = current != null && ModelBox.Items.Contains(current) ? current : AutoModel;
+            if (string.IsNullOrWhiteSpace(current)) ModelBox.SelectedItem = AutoModel;
+            else if (ModelBox.Items.Contains(current)) ModelBox.SelectedItem = current;
+            else ModelBox.Text = current; // 목록에 없는 직접 입력 모델명은 유지
 
             ServerStatus.Text = $"연결 성공 — 사용 가능한 모델 {models.Count}개";
             ServerStatus.Foreground = Brushes.Green;
@@ -110,7 +114,7 @@ public partial class SettingsWindow : Window
         {
             if (!silent)
             {
-                ServerStatus.Text = "연결 실패 — LM Studio를 실행하고 개발자 탭에서 서버를 시작했는지 확인하세요.";
+                ServerStatus.Text = "연결 실패 — 서버가 실행 중인지, 주소·API 키가 맞는지 확인하세요.";
                 ServerStatus.Foreground = Brushes.Red;
             }
         }
@@ -383,7 +387,9 @@ public partial class SettingsWindow : Window
         s.EmbeddedModelId = SelectedModel.Id;
         s.IdleUnloadMinutes = IdleMinuteValues[Math.Max(0, IdleUnloadBox.SelectedIndex)];
         s.ServerUrl = LmStudioClient.NormalizeBaseUrl(ServerBox.Text);
-        s.Model = ModelBox.SelectedItem as string == AutoModel ? "" : ModelBox.SelectedItem as string ?? "";
+        s.ApiKey = ApiKeyBox.Text.Trim();
+        string typedModel = ModelBox.Text.Trim();
+        s.Model = typedModel.Length == 0 || typedModel == AutoModel ? "" : typedModel;
         s.TargetLanguage = TargetBox.SelectedItem as string ?? "한국어";
         s.KoreanSourceTarget = KoreanSourceBox.SelectedItem as string ?? "영어";
         s.Glossary = GlossaryBox.Text;

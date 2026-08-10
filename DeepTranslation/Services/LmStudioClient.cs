@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +13,7 @@ public class LmStudioException : Exception
     public LmStudioException(string message, Exception inner) : base(message, inner) { }
 }
 
-/// <summary>LM Studio의 OpenAI 호환 로컬 서버와 통신하는 클라이언트.</summary>
+/// <summary>OpenAI 호환 서버(LM Studio·Ollama·llama-server·vLLM 등)와 통신하는 클라이언트.</summary>
 public sealed class LmStudioClient
 {
     private static readonly HttpClient Http = new() { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
@@ -38,7 +39,7 @@ public sealed class LmStudioClient
     /// 30초 TTL 캐시로 자동 모드의 반복 조회를 줄인다. bypassCache=true면 캐시를 무시하고 새로 조회한다
     /// (연결 테스트·새로고침처럼 최신 상태가 필요할 때).
     /// </summary>
-    public async Task<List<string>> GetModelsAsync(string baseUrl, CancellationToken ct, bool bypassCache = false)
+    public async Task<List<string>> GetModelsAsync(string baseUrl, CancellationToken ct, bool bypassCache = false, string? apiKey = null)
     {
         string root = NormalizeBaseUrl(baseUrl);
 
@@ -52,7 +53,7 @@ public sealed class LmStudioClient
             }
         }
 
-        var result = await FetchModelsAsync(root, ct);
+        var result = await FetchModelsAsync(root, apiKey, ct);
 
         lock (ModelsCacheSync)
         {
@@ -61,11 +62,11 @@ public sealed class LmStudioClient
         return result;
     }
 
-    private async Task<List<string>> FetchModelsAsync(string root, CancellationToken ct)
+    private async Task<List<string>> FetchModelsAsync(string root, string? apiKey, CancellationToken ct)
     {
         try
         {
-            var list = await GetModelsV0Async(root, ct);
+            var list = await GetModelsV0Async(root, apiKey, ct);
             if (list.Count > 0) return list;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -79,7 +80,7 @@ public sealed class LmStudioClient
         string json;
         try
         {
-            json = await Http.GetStringAsync($"{root}/v1/models", cts.Token);
+            json = await GetStringAsync($"{root}/v1/models", apiKey, cts.Token);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -99,11 +100,11 @@ public sealed class LmStudioClient
         return result;
     }
 
-    private static async Task<List<string>> GetModelsV0Async(string root, CancellationToken ct)
+    private static async Task<List<string>> GetModelsV0Async(string root, string? apiKey, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(5));
-        string json = await Http.GetStringAsync($"{root}/api/v0/models", cts.Token);
+        string json = await GetStringAsync($"{root}/api/v0/models", apiKey, cts.Token);
 
         var loaded = new List<string>();
         var others = new List<string>();
@@ -123,9 +124,27 @@ public sealed class LmStudioClient
         return loaded;
     }
 
+    // HttpClient.GetStringAsync는 요청별 헤더를 못 붙이므로 직접 요청을 만든다
+    private static async Task<string> GetStringAsync(string url, string? apiKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        AddApiKey(req, apiKey);
+        using var resp = await Http.SendAsync(req, ct);
+        if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            throw new LmStudioException($"서버가 요청을 거부했습니다 (HTTP {(int)resp.StatusCode}). 설정의 API 키를 확인하세요.");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
+    private static void AddApiKey(HttpRequestMessage req, string? apiKey)
+    {
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey.Trim());
+    }
+
     /// <summary>스트리밍 채팅 완성 요청. 토큰이 도착할 때마다 onDelta를 호출한다.</summary>
     public async Task StreamChatAsync(string baseUrl, string model, string systemPrompt, string userText,
-        double temperature, Action<string> onDelta, CancellationToken ct)
+        double temperature, Action<string> onDelta, CancellationToken ct, string? apiKey = null)
     {
         string root = NormalizeBaseUrl(baseUrl);
         var payload = new JsonObject
@@ -142,6 +161,7 @@ public sealed class LmStudioClient
         {
             Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json")
         };
+        AddApiKey(req, apiKey);
 
         HttpResponseMessage resp;
         try
@@ -159,7 +179,9 @@ public sealed class LmStudioClient
             {
                 string body = "";
                 try { body = await resp.Content.ReadAsStringAsync(ct); } catch { }
-                throw new LmStudioException($"LM Studio 서버 오류 (HTTP {(int)resp.StatusCode})\n{ExtractErrorMessage(body)}");
+                string hint = resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                    ? "설정의 API 키를 확인하세요.\n" : "";
+                throw new LmStudioException($"번역 서버 오류 (HTTP {(int)resp.StatusCode})\n{hint}{ExtractErrorMessage(body)}");
             }
 
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -179,7 +201,7 @@ public sealed class LmStudioClient
                     {
                         string msg = err is JsonValue v && v.TryGetValue<string>(out var s)
                             ? s : err["message"]?.GetValue<string>() ?? err.ToJsonString();
-                        throw new LmStudioException("LM Studio 오류: " + msg);
+                        throw new LmStudioException("번역 서버 오류: " + msg);
                     }
                     var delta = node?["choices"]?[0]?["delta"]?["content"]?.GetValue<string>();
                     if (!string.IsNullOrEmpty(delta)) onDelta(delta);
@@ -210,8 +232,9 @@ public sealed class LmStudioClient
     }
 
     private static string ConnectionHelp(string baseUrl) =>
-        $"LM Studio 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
-        "1. LM Studio를 실행하세요.\n" +
-        "2. 개발자(Developer) 탭에서 서버를 시작하세요 (Status: Running).\n" +
-        "3. 채팅용 모델을 하나 로드하세요.";
+        $"번역 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
+        "1. 서버(LM Studio·Ollama 등)가 실행 중인지 확인하세요.\n" +
+        "2. 설정의 서버 주소를 확인하세요.\n" +
+        "   (LM Studio: http://localhost:1234 · Ollama: http://localhost:11434/v1)\n" +
+        "3. 채팅용 모델이 준비되어 있는지 확인하세요.";
 }

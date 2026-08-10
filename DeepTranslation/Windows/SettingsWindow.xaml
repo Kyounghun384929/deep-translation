@@ -11,7 +11,7 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
             <RadioButton x:Name="EmbeddedRadio" Content="내장 모델 (권장)" GroupName="EngineMode"
                          Checked="EngineMode_Changed"/>
-            <RadioButton x:Name="LmStudioRadio" Content="LM Studio 서버" GroupName="EngineMode"
+            <RadioButton x:Name="LmStudioRadio" Content="외부 서버 (OpenAI 호환)" GroupName="EngineMode"
                          Margin="18,0,0,0" Checked="EngineMode_Changed"/>
         </StackPanel>
 
@@ -58,7 +58,7 @@
         </StackPanel>
 
         <StackPanel x:Name="LmStudioPanel">
-            <TextBlock Text="LM Studio 서버" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock Text="서버 주소" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -68,7 +68,12 @@
                 <Button Grid.Column="1" Content="연결 테스트" Margin="8,0,0,0" Padding="12,5" Click="Test_Click"/>
             </Grid>
             <TextBlock x:Name="ServerStatus" Foreground="Gray" FontSize="12" Margin="0,5,0,14"
-                       Text="예: http://localhost:1234" TextWrapping="Wrap"/>
+                       Text="LM Studio: http://localhost:1234 · Ollama: http://localhost:11434/v1" TextWrapping="Wrap"/>
+
+            <TextBlock Text="API 키 (선택)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBox x:Name="ApiKeyBox" Padding="6,5" VerticalContentAlignment="Center"/>
+            <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,14"
+                       Text="서버가 API 키를 요구할 때만 입력하세요. 키는 위 서버로만 전송됩니다."/>
 
             <TextBlock Text="모델" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <Grid Margin="0,0,0,14">
@@ -76,7 +81,8 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <ComboBox x:Name="ModelBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"/>
+                <ComboBox x:Name="ModelBox" Grid.Column="0" Padding="6,5" VerticalContentAlignment="Center"
+                          IsEditable="True"/>
                 <Button Grid.Column="1" Content="새로고침" Margin="8,0,0,0" Padding="12,5" Click="Refresh_Click"/>
             </Grid>
         </StackPanel>

@@ -52,6 +52,8 @@ public sealed class TranslationService
             }
 
             string serverUrl = settings.ServerUrl;
+            // 내장 엔진은 인증이 없으므로 사용자 API 키를 로컬 엔진에 보내지 않는다
+            string? apiKey = embedded ? null : settings.ApiKey;
             List<string> candidates;
             if (embedded)
             {
@@ -75,10 +77,10 @@ public sealed class TranslationService
             }
             else
             {
-                var models = await _client.GetModelsAsync(settings.ServerUrl, ct);
+                var models = await _client.GetModelsAsync(settings.ServerUrl, ct, apiKey: settings.ApiKey);
                 if (models.Count == 0)
                     throw new LmStudioException(
-                        "LM Studio에 사용 가능한 채팅 모델이 없습니다.\nLM Studio에서 모델을 로드한 뒤 다시 시도하세요.");
+                        "서버에 사용 가능한 채팅 모델이 없습니다.\n서버에서 모델을 로드한 뒤 다시 시도하세요.");
                 if (!string.IsNullOrWhiteSpace(settings.LastWorkingModel) && models.Remove(settings.LastWorkingModel))
                     models.Insert(0, settings.LastWorkingModel);
                 candidates = models.Take(3).ToList();
@@ -106,7 +108,7 @@ public sealed class TranslationService
                             lastEmit = now;
                             string body = marker.Process(ThinkFilter.Strip(raw.ToString()));
                             if (body.Length > 0) onText(body);
-                        }, ct);
+                        }, ct, apiKey);
 
                     if (raw.Length == 0)
                     {
@@ -115,7 +117,7 @@ public sealed class TranslationService
                             $"모델 '{model}'이(가) 응답을 생성하지 못했습니다.\n" +
                             (embedded
                                 ? "잠시 후 다시 시도해 보세요."
-                                : "모델이 메모리에 로드되지 못했을 수 있습니다. LM Studio에서 직접 로드해 보세요."));
+                                : "모델이 메모리에 로드되지 못했을 수 있습니다. 서버에서 모델을 직접 로드해 보세요."));
                         continue;
                     }
 

@@ -489,7 +489,7 @@ public partial class App : Application
                 {
                     var client = new LmStudioClient();
                     Out($"server: {LmStudioClient.NormalizeBaseUrl(settings.ServerUrl)}");
-                    var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None);
+                    var models = await client.GetModelsAsync(settings.ServerUrl, CancellationToken.None, apiKey: settings.ApiKey);
                     Out("models: " + string.Join(" | ", models));
                 }
                 else

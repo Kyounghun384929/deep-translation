@@ -17,6 +17,9 @@ public class AppSettings
 
     public string ServerUrl { get; set; } = "http://localhost:1234";
 
+    /// <summary>외부 서버가 인증을 요구할 때만 사용 (Bearer 토큰). 비어 있으면 헤더를 보내지 않는다.</summary>
+    public string ApiKey { get; set; } = "";
+
     /// <summary>비어 있으면 서버에 로드된 첫 번째 모델을 자동 사용.</summary>
     public string Model { get; set; } = "";
 

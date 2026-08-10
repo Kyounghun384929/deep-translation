@@ -173,7 +173,7 @@ public partial class TranslationWindow : Window
             OutputBox.Text = ex.Message;
             SetStatus(App.Settings.EngineMode == "Embedded"
                 ? "오류 — 번역 엔진을 시작하지 못했습니다"
-                : "오류 — LM Studio 상태를 확인하세요", error: true);
+                : "오류 — 서버 상태를 확인하세요", error: true);
         }
         catch (Exception ex)
         {
