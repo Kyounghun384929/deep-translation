@@ -491,6 +491,10 @@ public partial class App : Application
             }
 
             // --model <id>: 설정 파일을 건드리지 않고 내장 모델을 바꿔 검증한다 (모델별 회귀 확인용)
+            // --target <표시명>: 대상 언어를 바꿔 검증한다 (예: --target 영어)
+            int targetIdx = Array.IndexOf(args, "--target");
+            if (targetIdx >= 0 && targetIdx + 1 < args.Length) settings.TargetLanguage = args[targetIdx + 1];
+
             int modelIdx = Array.IndexOf(args, "--model");
             if (modelIdx >= 0 && modelIdx + 1 < args.Length)
             {

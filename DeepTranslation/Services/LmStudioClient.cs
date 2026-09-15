@@ -147,12 +147,13 @@ public sealed class LmStudioClient
         double temperature, Action<string> onDelta, CancellationToken ct, string? apiKey = null)
     {
         string root = NormalizeBaseUrl(baseUrl);
+        var messages = new JsonArray();
+        if (systemPrompt.Length > 0) messages.Add(new JsonObject { ["role"] = "system", ["content"] = systemPrompt });
+        messages.Add(new JsonObject { ["role"] = "user", ["content"] = userText });
         var payload = new JsonObject
         {
             ["model"] = model,
-            ["messages"] = new JsonArray(
-                new JsonObject { ["role"] = "system", ["content"] = systemPrompt },
-                new JsonObject { ["role"] = "user", ["content"] = userText }),
+            ["messages"] = messages,
             ["temperature"] = temperature,
             ["stream"] = true
         };

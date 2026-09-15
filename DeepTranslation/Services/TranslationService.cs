@@ -29,6 +29,8 @@ public sealed class TranslationService
         string fallbackEnglish = targetEnglish == "Korean"
             ? LanguageMaps.ToEnglish(settings.KoreanSourceTarget)
             : "Korean";
+        // 한국어 원문은 ResolveTarget이 대상을 확정했으므로 모델에 "이미 대상 언어면 폴백" 예외 규칙을 주지 않는다
+        bool allowFallback = !LanguageMaps.IsMostlyKorean(text);
         // 내장 모드는 서버 URL·LM Studio 모델명이 무관하므로 엔진 식별자로 캐시 키를 만든다
         // (백엔드도 반영 — 같은 GGUF라도 llama.cpp와 Ollama 결과를 분리한다)
         string cacheKey = LlmGuard.MakeKey(
@@ -39,7 +41,7 @@ public sealed class TranslationService
         if (!bypassCache && LlmGuard.TryGet(cacheKey, out var cached))
         {
             onText(cached.Text);
-            return new Result(cached.Model, ResolveDisplay(cached.Language, targetDisplay), cached.Text, FromCache: true);
+            return new Result(cached.Model, ResolveDisplay(cached.Language, targetDisplay, allowFallback ? fallbackEnglish : null), cached.Text, FromCache: true);
         }
 
         return await LlmGuard.RunExclusiveAsync(async () =>
@@ -48,7 +50,7 @@ public sealed class TranslationService
             if (!bypassCache && LlmGuard.TryGet(cacheKey, out var completed))
             {
                 onText(completed.Text);
-                return new Result(completed.Model, ResolveDisplay(completed.Language, targetDisplay), completed.Text, FromCache: true);
+                return new Result(completed.Model, ResolveDisplay(completed.Language, targetDisplay, allowFallback ? fallbackEnglish : null), completed.Text, FromCache: true);
             }
 
             string serverUrl = settings.ServerUrl;
@@ -86,24 +88,26 @@ public sealed class TranslationService
                 candidates = models.Take(3).ToList();
             }
 
-            string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish, fallbackEnglish, settings.Glossary);
+            string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish, fallbackEnglish, settings.Glossary, allowFallback);
             // Hy-MT2는 시스템 프롬프트의 대상 언어 지시를 무시하고 원문 언어로 되받아쓴다(공식 문서: 기본 system_prompt 없음,
             // 지시는 사용자 턴). 공식 "Default Translation" 지시문을 원문 앞에 붙여야 대상 언어를 따른다.
             LmStudioException? lastError = null;
             foreach (var model in candidates)
             {
                 ct.ThrowIfCancellationRequested();
-                // 외부 서버·Ollama("dt-" 접두)에서도 모델명으로 판별한다
-                string userText = model.Contains("hy-mt2", StringComparison.OrdinalIgnoreCase)
-                    ? $"Translate the following text into {targetEnglish}. Note that you should only output the translated result without any additional explanation:\n\n{text}"
-                    : text;
+                // 외부 서버·Ollama("dt-" 접두)에서도 모델명으로 판별한다.
+                // 시스템 프롬프트를 같이 보내면 영어 단어가 섞인 한국어 원문을 "이미 영어"로 보고 원문을 되받아쓰므로
+                // Hy-MT2에는 시스템 프롬프트를 보내지 않는다(용어집만 지시문에 덧붙인다).
+                bool hyMt = model.Contains("hy-mt2", StringComparison.OrdinalIgnoreCase);
+                string userText = hyMt ? LanguageMaps.BuildHyMtPrompt(targetEnglish, settings.Glossary, text) : text;
+                string sysText = hyMt ? "" : systemPrompt;
                 var raw = new StringBuilder();
                 var marker = new MarkerFilter();
                 var sw = Stopwatch.StartNew();
                 long lastEmit = -UiEmitIntervalMs; // 첫 델타는 즉시 반영되도록
                 try
                 {
-                    await _client.StreamChatAsync(serverUrl, model, systemPrompt, userText,
+                    await _client.StreamChatAsync(serverUrl, model, sysText, userText,
                         settings.Temperature,
                         delta =>
                         {
@@ -144,7 +148,7 @@ public sealed class TranslationService
                         if (useOllama) OllamaEngine.NotifyActivity();
                         else EmbeddedEngine.NotifyActivity();
                     }
-                    return new Result(model, ResolveDisplay(markerLang, targetDisplay), final);
+                    return new Result(model, ResolveDisplay(markerLang, targetDisplay, allowFallback ? fallbackEnglish : null), final);
                 }
                 catch (LmStudioException ex)
                 {
@@ -156,10 +160,12 @@ public sealed class TranslationService
         }, ct);
     }
 
-    // 마커에서 파싱된 언어(영어명)를 표시명으로 변환한다. 미등록/파싱 실패면 기존 요청 대상 표시명을 유지한다.
-    private static string ResolveDisplay(string markerLanguage, string requestedDisplay)
+    // 마커에서 파싱된 언어(영어명)를 표시명으로 변환한다. 마커는 요청한 대상 또는 허용된 폴백 언어일 때만 믿고,
+    // 그 외(미등록·파싱 실패·모델이 엉뚱한 마커를 붙인 경우)에는 요청 대상 표시명을 유지한다.
+    private static string ResolveDisplay(string markerLanguage, string requestedDisplay, string? fallbackEnglish)
     {
-        if (string.IsNullOrEmpty(markerLanguage)) return requestedDisplay;
-        return LanguageMaps.ToDisplay(markerLanguage) ?? requestedDisplay;
+        if (markerLanguage == fallbackEnglish && fallbackEnglish != null)
+            return LanguageMaps.ToDisplay(fallbackEnglish) ?? requestedDisplay;
+        return requestedDisplay;
     }
 }

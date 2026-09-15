@@ -50,6 +50,15 @@ public partial class TranslationWindow : Window
         _suppressTargetChanged = false;
     }
 
+    /// <summary>실제 번역된 언어를 드롭다운에 보여준다 (설정값은 바꾸지 않음 — 다음 번역 시 SyncTargetCombo가 되돌린다).</summary>
+    private void ShowEffectiveTarget(string display)
+    {
+        if (!LanguageMaps.TargetChoices.Contains(display) || TargetCombo.SelectedItem as string == display) return;
+        _suppressTargetChanged = true;
+        TargetCombo.SelectedItem = display;
+        _suppressTargetChanged = false;
+    }
+
     /// <summary>단축키로 호출 — 원문을 채우고 즉시 번역한다.</summary>
     public void ShowAndTranslate(string text)
     {
@@ -178,6 +187,7 @@ public partial class TranslationWindow : Window
 
             if (cts.IsCancellationRequested) return;
             ModelLabel.Text = result.Model;
+            ShowEffectiveTarget(result.TargetDisplay);
             // 한국어 원문이라 보조 언어로 번역된 경우 상태 표시줄에 알려준다
             string fallbackNote = result.TargetDisplay != App.Settings.TargetLanguage
                 ? $" · 한국어 원문 → {result.TargetDisplay}" : "";
