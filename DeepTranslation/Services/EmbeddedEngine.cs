@@ -220,6 +220,7 @@ public static class EmbeddedEngine
         try
         {
             proc.Start();
+            ChildJob.Attach(proc); // 앱이 죽으면 엔진도 함께 종료
         }
         catch (Exception ex)
         {
