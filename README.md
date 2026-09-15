@@ -1,154 +1,109 @@
 # Deep Translation
 
-DeepL처럼 쓰는 Windows 번역기 — 단, 번역은 **내장 로컬 LLM**이 합니다.
-인터넷으로 텍스트가 나가지 않는 완전 로컬 번역기입니다.
+**English** | [한국어](docs/README.ko.md)
 
-- **내장 번역 엔진**: LM Studio 없이 동작. 설정에서 모델을 1회 다운로드하면 앱이
-  llama.cpp(llama-server)를 직접 기동·관리. 유휴 시(기본 5분) 프로세스를 내려 RAM/VRAM 자동 회수
-- 아무 앱에서나 텍스트를 선택하고 **Ctrl+C, C** (빠르게 두 번 복사) → 번역 팝업이 뜸
-- **단축키 사용자 지정**: 설정에서 원하는 조합(예: `Alt+Q`, `Ctrl+Shift+T`, `F9`)으로 변경 가능.
-  Ctrl+C가 아닌 조합은 누르는 순간 선택 영역을 자동으로 복사해 번역
-- 기본 동작: **모든 언어 → 한국어** (원문이 이미 한국어면 → 영어, 설정 변경 가능).
-  모델이 첫 줄에 언어 마커를 붙여 실제 번역 언어를 알려주므로, 원문이 이미 대상 언어일 때의 자동 전환이 더 정확
-- **팝업에서 대상 언어 즉시 변경**: 번역 창의 언어 드롭다운으로 바꾸면 바로 다시 번역
-- **용어집**: 자주 쓰는 용어의 번역을 설정에 등록하면(한 줄에 `원어 = 번역어`) 그 표현을 일관되게 사용
-- 번역 결과가 토큰 단위로 실시간 스트리밍 표시
-- **반응 속도**: 단축키를 누르면 클립보드 변화를 감지하는 즉시 진행(고정 대기 없이), 모델 목록은 잠시 캐시
-- **LLM 중복 호출 방지 (LlmGuard)**: 생성 요청 전역 직렬화(동시에 1개), 동일 요청 캐시 응답(30분/32개),
-  연속 호출 냉각 간격. **다시 번역** 버튼(Ctrl+Enter)은 캐시를 무시하고 새로 생성
-- 트레이 상주형. **Windows 시작 시 자동 실행 On/Off** — 트레이 우클릭 메뉴에서 즉시 토글 (설정 창에서도 가능, 설치 시 선택도 반영)
+Select text anywhere, press **Ctrl+C, C** (twice, quickly), and a translation popup appears.
+Translation runs on a local LLM inside your PC, so your text never leaves the machine.
 
-## 설치
+[![Latest release](https://img.shields.io/github/v/release/Kyounghun384929/deep-translation)](https://github.com/Kyounghun384929/deep-translation/releases/latest)
 
-`dist\DeepTranslation-Setup-<버전>.exe`(최신 버전)를 실행하세요. (.NET 런타임 포함, 별도 설치 불필요)
+<p align="center">
+  <img src="docs/translation.png" alt="Translation popup" width="460">
+  <img src="docs/settings.png" alt="Settings" width="480">
+</p>
 
-설치 없이 쓰려면 `dist\DeepTranslation.exe` 단일 파일을 실행해도 됩니다.
+- No extra software needed. Download a model once from Settings
+- Default: **any language → Korean**; Korean source → English (switchable right in the popup)
+- Streams the result token by token. Edit the source text and it re-translates automatically
+- Custom hotkey, glossary, light/dark theme, run at Windows startup
+- Unloads the engine when idle (default 5 min) to free RAM/VRAM
+- Can switch to an OpenAI-compatible server such as LM Studio or Ollama
 
-## 시작하기
+## Installation
 
-1. 트레이 아이콘 우클릭 → **설정** → 번역 엔진에서 모델을 **다운로드**합니다
-   (기본: Qwen3.5 4B, 2.7GB — 1회만 받으면 됩니다).
-2. 텍스트를 선택하고 단축키를 누르면 바로 번역됩니다.
+Download `DeepTranslation-Setup-<version>.exe` from
+[Releases](https://github.com/Kyounghun384929/deep-translation/releases/latest) and run it.
+For a portable setup, run `DeepTranslation.exe` from the same page.
 
-첫 번역 시 llama.cpp 번역 엔진(약 33MB)이 자동으로 다운로드됩니다 (역시 1회).
-설정 → 번역 엔진의 **엔진 다운로드** 버튼으로 미리 받아 두면 첫 번역이 바로 시작됩니다
-(특히 Ollama 엔진을 쓰는 SAC PC에서 유용 — 약 1.4GB 다운로드 후 119MB만 저장).
-GPU(Vulkan)로 기동하지 못하면 자동으로 CPU 모드로 전환합니다.
-번역이 없으면(기본 5분, 설정 가능) 엔진을 내려 메모리를 완전히 회수하고,
-다음 번역 때 자동으로 다시 켭니다 (보통 1~2초).
-컨텍스트 길이는 기본 8192토큰이며(`settings.json`의 `ContextSize`), 원문이 한도를 넘으면
-보내기 전에 "더 짧게 나눠서 번역하세요" 안내를 표시합니다.
+The binaries are not code-signed. If SmartScreen warns you, click **More info → Run anyway**.
 
-제공 모델: Qwen3.5 4B(권장, 201개 언어) · Hy-MT2 7B(Tencent 번역 특화, 4.6GB) · Gemma 4 E4B(5.0GB) · Qwen3 4B ·
-EXAONE 3.5 2.4B(한국어 특화, 비상업 라이선스) · HyperCLOVA X SEED 1.5B(경량).
-라이선스 조건은 설정 창에 표시됩니다.
+### System requirements
 
-## 고급: 외부 서버 연동 (OpenAI 호환)
+| | Minimum | Recommended |
+|---|---|---|
+| OS | Windows 10/11 x64 | Windows 11 x64 |
+| RAM | 8 GB (with the 1.5B model) | 16 GB |
+| GPU | None (runs on CPU) | Any Vulkan-capable GPU with 6 GB+ VRAM |
+| Disk | 2 GB | 6 GB (room for a 7B model) |
 
-더 큰 모델이나 직접 관리하는 서버를 쓰고 싶으면 설정에서 엔진을 **외부 서버 (OpenAI 호환)**로
-전환할 수 있습니다. OpenAI 호환 API(`/v1/chat/completions`)를 제공하는 서버라면 무엇이든 됩니다.
+Without a GPU, translation works but is noticeably slower. Rough working-memory needs per model,
+counting the model file plus the default 8K context:
 
-| 서버 | 주소 예시 |
+| Model | Download | RAM/VRAM while running |
+|---|---|---|
+| HyperCLOVA X SEED 1.5B | 1.1 GB | ~2 GB |
+| EXAONE 3.5 2.4B | 1.6 GB | ~2.5 GB |
+| Qwen3 4B / Qwen3.5 4B | 2.5–2.7 GB | ~4 GB |
+| Hy-MT2 7B | 4.6 GB | ~6 GB |
+| Gemma 4 E4B | 5.0 GB | ~6.5 GB |
+
+## Getting started
+
+1. Right-click the tray icon → **Settings** → **Download** a model (default: Qwen3.5 4B, 2.7 GB)
+2. Select some text and press **Ctrl+C, C**
+
+The translation engine (~33 MB) is downloaded automatically on the first translation.
+If a GPU is not available, it falls back to CPU.
+
+## Models
+
+All models run as 4-bit GGUF (Q4_K_M) files. Pick one in Settings → Translation engine.
+
+| Model | Best for | Notes |
+|---|---|---|
+| **Qwen3.5 4B** (default) | General use, widest language coverage | Supports "201 languages and dialects" ([Qwen](https://huggingface.co/Qwen/Qwen3.5-4B)). Apache 2.0 |
+| **Hy-MT2 7B** | Highest translation quality | Tencent's dedicated translation model, "translation among 33 languages" ([Hy-MT2](https://huggingface.co/tencent/Hy-MT2-7B)). Apache 2.0 |
+| **Gemma 4 E4B** | Strong general quality | Google, "over 140 languages", 4.5B effective parameters ([Gemma 4](https://huggingface.co/google/gemma-4-E4B-it)). Apache 2.0 |
+| **Qwen3 4B Instruct** | Alternative to Qwen3.5 | Previous Qwen generation ([Qwen](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)). Apache 2.0 |
+| **EXAONE 3.5 2.4B** | Korean ↔ English on smaller PCs | LG AI Research, bilingual "English and Korean" ([EXAONE](https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct)). **Non-commercial license** |
+| **HyperCLOVA X SEED 1.5B** | Lowest memory, Korean-focused | NAVER, tuned for "Korean language and culture" ([HyperCLOVA X](https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-1.5B)). Commercial use allowed under its own license |
+
+License terms are also shown in the Settings window. Check them before commercial use.
+
+## Usage
+
+| Action | How |
 |---|---|
-| [LM Studio](https://lmstudio.ai/) | `http://localhost:1234` — 개발자(Developer) 탭에서 서버 시작 |
+| Translate | Select text, press **Ctrl+C, C** (hotkey configurable in Settings) |
+| Change target language | "Translate →" dropdown in the popup |
+| Re-translate | Edit the source text, or press **Ctrl+Enter** |
+| Copy result | **Copy** button |
+| Close | **Esc** or click outside (📌 pins the window) |
+| Translate typed text | Double-click the tray icon |
+| Glossary | Settings → Glossary, one `source = target` per line |
+| Update | Checked once a day, or tray right-click → **Check for updates** |
+
+## External server
+
+Switch the engine to **External server (OpenAI-compatible)** in Settings to use your own server.
+
+| Server | Address |
+|---|---|
+| [LM Studio](https://lmstudio.ai/) | `http://localhost:1234` |
 | [Ollama](https://ollama.com/) | `http://localhost:11434/v1` |
-| llama.cpp `llama-server` · vLLM 등 | 기동 시 지정한 주소 |
+| llama.cpp, vLLM, etc. | Whatever address the server listens on |
 
-모델은 목록에서 고르거나 입력란에 직접 타이핑할 수 있고, 비워 두면(자동) 서버에 로드된 모델을
-우선 사용합니다. 서버가 인증을 요구하면(`llama-server --api-key`, vLLM `--api-key` 등)
-설정의 **API 키** 란에 입력하세요 — 키는 지정한 서버로만 전송됩니다.
+If the server requires authentication, enter the key in the **API key** field.
 
-## 사용법
+## Known issues
 
-| 동작 | 방법 |
+| Issue | Note |
 |---|---|
-| 번역 팝업 | 텍스트 선택 후 **Ctrl+C, C** (기본값 — 설정에서 임의 조합으로 변경 가능) |
-| 단축키 변경 | 설정 → 번역 단축키 입력란 클릭 → 원하는 조합 누르기. 문자·숫자 키는 Ctrl/Alt/Win 조합 필요, F1–F24는 단독 가능. Ctrl+C 조합만 '두 번 누르기' 강제 |
-| 다시 번역 | 팝업에서 원문 수정 (0.9초 후 자동 번역), 또는 **다시 번역** 버튼/**Ctrl+Enter** (캐시 무시, 새로 생성) |
-| 대상 언어 변경 | 팝업의 "번역 →" 드롭다운 (즉시 재번역, 설정에도 저장됨) |
-| 번역문 복사 | 팝업의 **복사** 버튼 |
-| 창 닫기 | **Esc**, ✕, 또는 창 밖 클릭 (📌 고정 시 유지) |
-| 직접 입력 번역 | 트레이 아이콘 더블클릭 → 원문 입력 |
-| 용어집 | 설정 → 용어집에 `원어 = 번역어`를 한 줄에 하나씩 입력 (예: `LM Studio = LM Studio`) |
-| 모델 변경/삭제 | 설정 → 번역 엔진에서 모델 선택·다운로드·삭제 (받다 만 파일은 이어받기) |
-| 테마 변경 | 설정 → 번역 창 테마 (시스템 기본 / 라이트 / 다크 — 기본값은 Windows 설정 따름) |
-| 설정 | 트레이 아이콘 우클릭 → 설정 (번역 엔진, 모델, 대상 언어, 용어집, 테마, 자동 실행 등) |
-| 자동 시작 On/Off | 트레이 아이콘 우클릭 → **Windows 시작 시 자동 실행** (체크 표시 = 켜짐, 즉시 반영) |
-| 업데이트 | 하루 1회 자동 확인(설정에서 끔 가능) 또는 트레이 우클릭 → **업데이트 확인**. 새 버전이 있으면 GitHub Releases에서 설치 프로그램을 받아 설치합니다 (저장소가 public일 때 동작) |
-| 종료 | 트레이 아이콘 우클릭 → 종료 |
+| "Failed to start the embedded engine" | Usually out of memory. Pick a smaller model |
+| "Cannot connect to the translation server" | Check that the external server is running and the address/API key are correct |
+| Slow translation | The first request loads the model. If it stays slow, use a smaller model or a GPU |
+| Ctrl+C, C does nothing | The hotkey cannot reach windows running as administrator |
+| Smart App Control (SAC) enabled | The app automatically uses the signed Ollama engine. Forcing llama.cpp in Settings will be blocked |
 
-외부 서버 모드에서 모델을 지정하지 않으면(기본값: 자동) 서버에 **이미 로드된 모델을 우선** 사용하고,
-로드 실패 시 다음 모델로 자동 재시도합니다.
-
-## 빌드
-
-```powershell
-# .NET 8 SDK 필요 (winget install Microsoft.DotNet.SDK.8)
-.\build.ps1              # dist\DeepTranslation.exe
-.\build.ps1 -Installer   # + 설치 프로그램 (Inno Setup 6 필요)
-```
-
-개발용 연결 점검 (GUI 없이 번역 파이프라인 검증):
-
-```powershell
-.\dist\DeepTranslation.exe --selftest "Hello world" --out result.txt
-# 모델 로드 없이 UI/파싱만 검증 (컴퓨터가 바쁠 때):
-.\dist\DeepTranslation.exe --selftest --no-llm --out result.txt
-# 특정 내장 모델로 EN→KO·KO→EN 회귀 케이스 실행 (설정 파일은 바꾸지 않음):
-.\dist\DeepTranslation.exe --selftest --pairs --model gemma-4-e4b-it --out result.txt
-```
-
-## 문제 해결
-
-| 증상 | 해결 |
-|---|---|
-| "모델이 아직 다운로드되지 않았습니다" | 설정 → 번역 엔진에서 선택한 모델을 다운로드 |
-| "내장 번역 엔진을 시작하지 못했습니다" | 오류에 표시된 로그(`%LOCALAPPDATA%\DeepTranslation\llama-server.log`) 확인. 대개 메모리 부족 — 더 작은 모델(HyperCLOVA 1.5B) 선택 |
-| "번역 서버에 연결할 수 없습니다" | 서버(LM Studio·Ollama 등) 실행 여부와 설정의 서버 주소·API 키 확인 |
-| "모델이 응답을 생성하지 못했습니다" | 모델이 메모리에 로드되지 못한 경우 (대개 메모리 부족). 서버에서 더 작은 모델을 로드하거나, 설정에서 모델을 직접 지정 |
-| 번역이 느림 | 더 작은 모델 사용 권장. 첫 요청은 모델 로드 때문에 오래 걸릴 수 있음 |
-| Ctrl+C, C가 안 먹힘 | 트레이 아이콘 우클릭 → 설정에서 단축키 활성화 확인. 관리자 권한 창 위에서는 일반 권한 앱의 훅이 동작하지 않음 |
-
-설정 파일: `%APPDATA%\DeepTranslation\settings.json`
-모델·엔진 파일: `%LOCALAPPDATA%\DeepTranslation\models`, `%LOCALAPPDATA%\DeepTranslation\llama`
-
-## 엔진 백엔드 (llama.cpp / Ollama)
-
-내장 번역 엔진은 두 백엔드를 지원하며, 설정 → 번역 엔진 → **엔진 백엔드**에서 고를 수 있습니다
-(기본값 **자동**). **스마트 앱 컨트롤(SAC)이 켜진 PC에서는 무서명 llama.cpp가 차단되므로,
-자동 모드가 서명된 Ollama 엔진으로 자동 전환**합니다. Ollama 백엔드는 공식 배포본에서 Vulkan+CPU
-추론에 필요한 최소 파일(약 119MB)만 내려받아 앱이 직접 기동·관리하며, 이미 받아 둔 같은 GGUF 모델을
-재활용합니다. SAC이 꺼진 PC에서는 더 가벼운 llama.cpp가 기본입니다. 개발·테스트를 위해 백엔드를
-직접 지정할 수도 있습니다.
-
-## 알려진 제한 사항
-
-**스마트 앱 컨트롤(SAC)이 켜진 PC**에서 백엔드를 **llama.cpp로 강제**하면 무서명
-llama-server.exe의 실행이 차단됩니다. 이때는 **자동** 또는 **Ollama**(서명된 엔진) 백엔드를
-사용하거나, **외부 서버 모드**(LM Studio 등 서명된 앱)로 전환하거나, Windows 설정 → 개인 정보 및 보안 → Windows 보안 →
-앱 및 브라우저 컨트롤에서 SAC을 끄면 됩니다. 설정 창과 오류 메시지에도 같은 안내가 표시됩니다.
-
-## 구조
-
-```
-DeepTranslation/            WPF 앱 (.NET 8, C#)
-  App.xaml(.cs)             트레이 아이콘, 전역 훅 연결, 셀프테스트
-  Services/
-    KeyboardHookService.cs  저수준 키보드 훅 — Ctrl+C 두 번 감지
-    LmStudioClient.cs       OpenAI 호환 API 클라이언트 (SSE 스트리밍)
-    EmbeddedEngine.cs       내장 엔진 — llama-server 기동/폴백/유휴 언로드
-    OllamaEngine.cs         내장 엔진(대안) — 슬림 Ollama 추출/기동/GGUF 재활용/유휴 언로드 (SAC 대응)
-    ModelCatalog.cs         내장 GGUF 모델 카탈로그 (4종)
-    ModelDownloader.cs      대용량 다운로드 (.part 이어받기)
-    TranslationService.cs   모델 자동 선택·재시도, 스트리밍 스로틀, think·마커 필터
-    LanguageMaps.cs         한글 감지, 대상 언어 결정, 시스템 프롬프트(언어 마커·용어집)
-    MarkerFilter.cs         출력 첫 줄의 언어 마커(@@언어@@) 감지·제거
-    ThemeManager.cs         라이트/다크 테마 팔레트 적용 (시스템 설정 추적)
-    UpdateChecker.cs        GitHub Releases 새 버전 확인
-  Windows/
-    TranslationWindow.xaml  번역 팝업 (라이트/다크 테마)
-    SettingsWindow.xaml     설정 창
-installer/setup.iss         Inno Setup 스크립트
-tools/make-icon.ps1         앱 아이콘 생성
-build.ps1                   퍼블리시 + 설치 프로그램 빌드
-```
+Settings file: `%APPDATA%\DeepTranslation\settings.json`
+Model files: `%LOCALAPPDATA%\DeepTranslation\models`
