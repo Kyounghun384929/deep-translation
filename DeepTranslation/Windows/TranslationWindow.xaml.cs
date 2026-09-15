@@ -70,6 +70,15 @@ public partial class TranslationWindow : Window
         SourceBox.Focus();
     }
 
+    /// <summary>단축키를 눌렀지만 복사된 텍스트가 없을 때 — 이전 클립보드를 번역하지 않고 안내만 띄운다.</summary>
+    public void ShowNoSelection()
+    {
+        _cts?.Cancel();
+        _debounce.Stop();
+        ShowManual();
+        SetStatus("선택된 텍스트가 없습니다. 텍스트를 드래그한 뒤 단축키를 누르거나 직접 입력하세요.", error: true);
+    }
+
     private void ShowActivateTop()
     {
         Show();
@@ -113,7 +122,8 @@ public partial class TranslationWindow : Window
         string text = SourceBox.Text.Trim();
         string signature = string.Join((char)31,
             App.Settings.ServerUrl, App.Settings.Model, App.Settings.TargetLanguage,
-            App.Settings.EngineMode, App.Settings.EmbeddedModelId, text);
+            App.Settings.EngineMode, App.Settings.EmbeddedModelId,
+            App.Settings.Glossary, App.Settings.Temperature, text);
 
         // 같은 내용의 요청이 이미 진행 중이면 재시작하지 않는다 (불필요한 LLM 재호출 방지)
         if (!force && _inFlight && signature == _inFlightSignature) return;
@@ -129,6 +139,18 @@ public partial class TranslationWindow : Window
         {
             SetStatus("번역할 텍스트가 없습니다. 원문을 입력해 보세요.", error: false);
             return;
+        }
+
+        // 내장 엔진은 컨텍스트가 고정이라 긴 원문은 잘리거나 실패한다 — 보내기 전에 대략 추정해 안내한다
+        if (App.Settings.EngineMode == "Embedded")
+        {
+            int tokens = LanguageMaps.EstimateTokens(text);
+            int limit = LanguageMaps.MaxSourceTokens(App.Settings.ContextSize);
+            if (tokens > limit)
+            {
+                SetStatus($"원문이 너무 깁니다 (약 {tokens:N0}토큰, 한도 {limit:N0}). 더 짧게 나눠서 번역하세요.", error: true);
+                return;
+            }
         }
 
         _inFlight = true;
@@ -161,7 +183,7 @@ public partial class TranslationWindow : Window
                 ? $" · 한국어 원문 → {result.TargetDisplay}" : "";
             SetStatus(result.FromCache
                 ? $"완료 · 캐시{fallbackNote} — 새로 생성하려면 '다시 번역'"
-                : $"완료 · {sw.Elapsed.TotalSeconds:0.0}초{fallbackNote}", error: false);
+                : $"완료 · {sw.Elapsed.TotalSeconds:0.0}초 · {result.Text.Length:N0}자{fallbackNote}", error: false);
         }
         catch (OperationCanceledException)
         {
@@ -252,6 +274,8 @@ public partial class TranslationWindow : Window
         _holdOpen = true;
         try { App.Instance.ShowSettingsDialog(this); }
         finally { _holdOpen = false; }
+        // 용어집·온도·모델이 바뀌었을 수 있다 — 같은 조건이면 캐시로 즉시 끝난다
+        if (SourceBox.Text.Trim().Length > 0) { _debounce.Stop(); _ = TranslateAsync(); }
     }
 
     private void SourceBox_TextChanged(object sender, TextChangedEventArgs e)

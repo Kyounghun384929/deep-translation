@@ -33,6 +33,7 @@ public static class EmbeddedEngine
     private static Process? _proc;
     private static StreamWriter? _log;
     private static string _modelId = "";
+    private static int _ctxSize;
     private static string _baseUrl = "";
     private static Timer? _idleTimer;
     private static int _idleMinutes = 5;
@@ -95,7 +96,7 @@ public static class EmbeddedEngine
         lock (Sync)
         {
             _idleMinutes = settings.IdleUnloadMinutes;
-            if (_proc is { HasExited: false } && _modelId == model.Id)
+            if (_proc is { HasExited: false } && _modelId == model.Id && _ctxSize == settings.ContextSize)
             {
                 ResetIdleTimerLocked();
                 return _baseUrl;
@@ -119,7 +120,7 @@ public static class EmbeddedEngine
         {
             ct.ThrowIfCancellationRequested();
             string exe = await EnsureBinaryAsync(cpu, onStatus, ct);
-            if (await TryStartAsync(model, exe, ngl, onStatus, ct))
+            if (await TryStartAsync(model, exe, ngl, settings.ContextSize, onStatus, ct))
             {
                 if (cpu && !cpuOnly)
                 {
@@ -151,7 +152,7 @@ public static class EmbeddedEngine
         {
             if (_proc == null) return;
             _idleMinutes = settings.IdleUnloadMinutes;
-            if (settings.EngineMode != "Embedded" || settings.EmbeddedModelId != _modelId)
+            if (settings.EngineMode != "Embedded" || settings.EmbeddedModelId != _modelId || settings.ContextSize != _ctxSize)
                 StopLocked();
             else
                 ResetIdleTimerLocked(); // 유휴 시간 변경 즉시 반영
@@ -182,12 +183,12 @@ public static class EmbeddedEngine
 
     // ---- 기동 ----
 
-    private static async Task<bool> TryStartAsync(ModelCatalog.ModelInfo model, string exe, int ngl,
+    private static async Task<bool> TryStartAsync(ModelCatalog.ModelInfo model, string exe, int ngl, int ctxSize,
         Action<string>? onStatus, CancellationToken ct)
     {
         int port = GetFreePort();
         string args = $"-m \"{model.FilePath}\" --host 127.0.0.1 --port {port} " +
-                      $"-ngl {ngl} --ctx-size 4096 -a {model.Id} --no-webui";
+                      $"-ngl {ngl} --ctx-size {ctxSize} -a {model.Id} --no-webui";
         // qwen3.5는 thinking이 기본 켜져 컨텍스트를 소진할 때까지 생각만 한다 — 템플릿에서 꺼야 즉답한다
         // (--reasoning-budget 0만으로는 안 멈춤, llama-server는 chat-template-kwargs가 정상 동작)
         if (model.Id.StartsWith("qwen3.5"))
@@ -252,6 +253,7 @@ public static class EmbeddedEngine
                             _proc = proc;
                             _log = log;
                             _modelId = model.Id;
+                            _ctxSize = ctxSize;
                             _baseUrl = baseUrl;
                             ResetIdleTimerLocked();
                         }

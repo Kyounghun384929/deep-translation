@@ -15,6 +15,9 @@ public class AppSettings
     /// <summary>내장 엔진 유휴 언로드 대기 시간(분). 0이면 언로드하지 않음.</summary>
     public int IdleUnloadMinutes { get; set; } = 5;
 
+    /// <summary>내장 엔진 컨텍스트 길이(토큰). 원문 길이 안내의 기준으로도 쓰인다.</summary>
+    public int ContextSize { get; set; } = 8192;
+
     public string ServerUrl { get; set; } = "http://localhost:1234";
 
     /// <summary>외부 서버가 인증을 요구할 때만 사용 (Bearer 토큰). 비어 있으면 헤더를 보내지 않는다.</summary>

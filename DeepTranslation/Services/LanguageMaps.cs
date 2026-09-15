@@ -70,6 +70,29 @@ public static class LanguageMaps
     }
 
     /// <summary>
+    /// 토큰 수 대략 추정 (토크나이저 없이). 한글·CJK는 글자당 1토큰, 나머지는 4글자당 1토큰으로 보수적으로 잡는다.
+    /// </summary>
+    public static int EstimateTokens(string text)
+    {
+        int cjk = 0, other = 0;
+        foreach (var ch in text)
+        {
+            if (ch is (>= (char)0xAC00 and <= (char)0xD7A3) or (>= (char)0x1100 and <= (char)0x11FF)
+                   or (>= (char)0x3130 and <= (char)0x318F) or (>= (char)0x3040 and <= (char)0x30FF)
+                   or (>= (char)0x4E00 and <= (char)0x9FFF))
+                cjk++;
+            else other++;
+        }
+        return cjk + (other + 3) / 4;
+    }
+
+    /// <summary>
+    /// 컨텍스트 길이 안에서 번역할 수 있는 원문 토큰 상한.
+    /// 시스템 프롬프트 ~500토큰을 빼고, 번역문이 원문의 최대 1.5배까지 나온다고 보고 나눈다.
+    /// </summary>
+    public static int MaxSourceTokens(int contextSize) => Math.Max(256, (contextSize - 500) * 2 / 5);
+
+    /// <summary>
     /// 번역 시스템 프롬프트를 조립한다. 첫 줄에 언어 마커(@@언어@@)를 출력하도록 지시하며,
     /// 원문이 이미 대상 언어(targetEnglish)이면 fallbackEnglish로 번역하게 한다.
     /// 유효한 용어집 항목이 있으면 TERMINOLOGY 섹션을 포함한다.

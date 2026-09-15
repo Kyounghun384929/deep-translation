@@ -2,7 +2,7 @@
 ; Build: ISCC.exe setup.iss   (or run ..\build.ps1 -Installer)
 
 #define MyAppName "Deep Translation"
-#define MyAppVersion "1.7.1"
+#define MyAppVersion "1.7.2"
 #define MyAppPublisher "DeepTranslation"
 #define MyAppExeName "DeepTranslation.exe"
 

@@ -87,17 +87,23 @@ public sealed class TranslationService
             }
 
             string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish, fallbackEnglish, settings.Glossary);
+            // Hy-MT2는 시스템 프롬프트의 대상 언어 지시를 무시하고 원문 언어로 되받아쓴다(공식 문서: 기본 system_prompt 없음,
+            // 지시는 사용자 턴). 공식 "Default Translation" 지시문을 원문 앞에 붙여야 대상 언어를 따른다.
             LmStudioException? lastError = null;
             foreach (var model in candidates)
             {
                 ct.ThrowIfCancellationRequested();
+                // 외부 서버·Ollama("dt-" 접두)에서도 모델명으로 판별한다
+                string userText = model.Contains("hy-mt2", StringComparison.OrdinalIgnoreCase)
+                    ? $"Translate the following text into {targetEnglish}. Note that you should only output the translated result without any additional explanation:\n\n{text}"
+                    : text;
                 var raw = new StringBuilder();
                 var marker = new MarkerFilter();
                 var sw = Stopwatch.StartNew();
                 long lastEmit = -UiEmitIntervalMs; // 첫 델타는 즉시 반영되도록
                 try
                 {
-                    await _client.StreamChatAsync(serverUrl, model, systemPrompt, text,
+                    await _client.StreamChatAsync(serverUrl, model, systemPrompt, userText,
                         settings.Temperature,
                         delta =>
                         {

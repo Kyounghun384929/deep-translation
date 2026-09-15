@@ -36,8 +36,10 @@ DeepL처럼 쓰는 Windows 번역기 — 단, 번역은 **내장 로컬 LLM**이
 GPU(Vulkan)로 기동하지 못하면 자동으로 CPU 모드로 전환합니다.
 번역이 없으면(기본 5분, 설정 가능) 엔진을 내려 메모리를 완전히 회수하고,
 다음 번역 때 자동으로 다시 켭니다 (보통 1~2초).
+컨텍스트 길이는 기본 8192토큰이며(`settings.json`의 `ContextSize`), 원문이 한도를 넘으면
+보내기 전에 "더 짧게 나눠서 번역하세요" 안내를 표시합니다.
 
-제공 모델: Qwen3.5 4B(권장, 201개 언어) · Qwen3 4B · Gemma 3 4B ·
+제공 모델: Qwen3.5 4B(권장, 201개 언어) · Hy-MT2 7B(Tencent 번역 특화, 4.6GB) · Gemma 4 E4B(5.0GB) · Qwen3 4B ·
 EXAONE 3.5 2.4B(한국어 특화, 비상업 라이선스) · HyperCLOVA X SEED 1.5B(경량).
 라이선스 조건은 설정 창에 표시됩니다.
 
@@ -92,6 +94,8 @@ EXAONE 3.5 2.4B(한국어 특화, 비상업 라이선스) · HyperCLOVA X SEED 1
 .\dist\DeepTranslation.exe --selftest "Hello world" --out result.txt
 # 모델 로드 없이 UI/파싱만 검증 (컴퓨터가 바쁠 때):
 .\dist\DeepTranslation.exe --selftest --no-llm --out result.txt
+# 특정 내장 모델로 EN→KO·KO→EN 회귀 케이스 실행 (설정 파일은 바꾸지 않음):
+.\dist\DeepTranslation.exe --selftest --pairs --model gemma-4-e4b-it --out result.txt
 ```
 
 ## 문제 해결

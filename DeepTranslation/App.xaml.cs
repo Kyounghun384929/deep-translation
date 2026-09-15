@@ -228,7 +228,16 @@ public partial class App : Application
             timeoutMs = 500;
         }
 
-        await WaitForClipboardChangeAsync(startSeq, timeoutMs);
+        bool changed = await WaitForClipboardChangeAsync(startSeq, timeoutMs);
+
+        // 합성 Ctrl+C가 아무것도 복사하지 못했으면(선택 없음, Office처럼 단축키를 가로채는 앱)
+        // 이전 클립보드 내용을 엉뚱하게 번역하지 않고 안내만 띄운다
+        if (!changed && !_gesture.IsCopyGesture)
+        {
+            _window ??= new TranslationWindow();
+            _window.ShowNoSelection();
+            return;
+        }
 
         string text = await ReadClipboardTextAsync();
         ShowTranslationWindow(text, translate: true);
@@ -236,16 +245,17 @@ public partial class App : Application
 
     /// <summary>
     /// 클립보드 시퀀스 번호가 startSeq에서 바뀔 때까지 짧은 간격으로 폴링한다.
-    /// 값이 바뀌면 즉시, 아니면 timeoutMs 후에 반환한다(타임아웃 시에도 호출부가 클립보드를 읽고 진행).
+    /// 값이 바뀌면 즉시 true, 아니면 timeoutMs 후에 false를 반환한다.
     /// </summary>
-    private static async Task WaitForClipboardChangeAsync(uint startSeq, int timeoutMs)
+    private static async Task<bool> WaitForClipboardChangeAsync(uint startSeq, int timeoutMs)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            if (GetClipboardSequenceNumber() != startSeq) return;
+            if (GetClipboardSequenceNumber() != startSeq) return true;
             await Task.Delay(15);
         }
+        return false;
     }
 
     private static async Task<string> ReadClipboardTextAsync()
@@ -472,10 +482,45 @@ public partial class App : Application
                 Out($"update-check: result={(real == null ? "null" : "v" + real.Version)} (비공개 저장소/최신이면 null)");
             }
 
+            // 토큰 추정 검증: 한글은 글자당 1, 영어는 4글자당 1, 한도는 ctx 8192에서 약 3천
+            {
+                int ko = LanguageMaps.EstimateTokens("안녕하세요");
+                int en = LanguageMaps.EstimateTokens("Hello world!");
+                int limit = LanguageMaps.MaxSourceTokens(8192);
+                Out($"tokens: ko5={ko} en12={en} limit8192={limit} (5 / 3 / 3076이어야 정상)");
+            }
+
+            // --model <id>: 설정 파일을 건드리지 않고 내장 모델을 바꿔 검증한다 (모델별 회귀 확인용)
+            int modelIdx = Array.IndexOf(args, "--model");
+            if (modelIdx >= 0 && modelIdx + 1 < args.Length)
+            {
+                settings.EngineMode = "Embedded";
+                settings.EmbeddedModelId = args[modelIdx + 1];
+            }
+
             // --no-llm: 모델 로드(JIT)를 유발하지 않고 UI·파싱 검증만 수행
             if (args.Contains("--no-llm"))
             {
                 Out("selftest done (LLM 호출 생략)");
+            }
+            else if (args.Contains("--pairs"))
+            {
+                // 모델 회귀 케이스: EN→KO, KO→EN 고정 문장 (마커·대상 언어·되받아쓰기 여부 확인)
+                Out($"engine: {settings.EngineMode} ({settings.EmbeddedModelId})");
+                var service = new TranslationService();
+                foreach (var text in new[]
+                {
+                    "Local LLMs make private, offline translation possible.",
+                    "이 문서는 내부 검토용이며 외부에 공유하지 마십시오.",
+                })
+                {
+                    string last = "";
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var result = await service.TranslateAsync(settings, text, t => last = t, CancellationToken.None, bypassCache: true);
+                    Out($"pair: [{result.TargetDisplay}] {sw.Elapsed.TotalSeconds:0.0}s model={result.Model}");
+                    Out($"  src: {text}");
+                    Out($"  out: {last}");
+                }
             }
             else
             {

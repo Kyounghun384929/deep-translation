@@ -238,7 +238,8 @@ public static class OllamaEngine
         // Ollama 경로(SAC PC)는 미검증. SAC PC에서 qwen3.5가 무응답이면 여기서 think 끄기를 구현할 것
         // 임시 Modelfile: 기존에 내려받은 GGUF를 그대로 가져온다(create가 blob 저장소로 복사)
         string modelfile = Path.Combine(OllamaRootDir, "Modelfile.tmp");
-        await File.WriteAllTextAsync(modelfile, $"FROM \"{model.FilePath}\"\n", ct);
+        // ponytail: num_ctx는 최초 등록 시에만 반영 — 이미 등록된 모델은 설정 창에서 삭제 후 재등록해야 바뀐다
+        await File.WriteAllTextAsync(modelfile, $"FROM \"{model.FilePath}\"\nPARAMETER num_ctx {App.Settings.ContextSize}\n", ct);
         try
         {
             await RunClientAsync(exe, $"create {ollamaModel} -f \"{modelfile}\"", port, ct);
