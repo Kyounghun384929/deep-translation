@@ -17,7 +17,7 @@ Translation runs on a local LLM inside your PC, so your text never leaves the ma
 - Streams the result token by token. Edit the source text and it re-translates automatically
 - Custom hotkey, glossary, light/dark theme, run at Windows startup
 - Unloads the engine when idle (default 5 min) to free RAM/VRAM
-- Can switch to an OpenAI-compatible server such as LM Studio or Ollama
+- Can switch to an external LM Studio server
 
 ## Installation
 
@@ -57,7 +57,7 @@ If a GPU is not available, it falls back to CPU.
 
 ## Models
 
-All models run as 4-bit GGUF (Q4_K_M) files. Pick one in Settings → Translation engine.
+All models run as 4-bit GGUF (Q4_K_M) files. Pick one in Settings → Engine.
 
 | Model | Best for | Notes |
 |---|---|---|
@@ -87,13 +87,9 @@ License terms are also shown in the Settings window. Check them before commercia
 
 Switch the engine to **External server (OpenAI-compatible)** in Settings to use your own server.
 
-| Server | Address |
-|---|---|
-| [LM Studio](https://lmstudio.ai/) | `http://localhost:1234` |
-| [Ollama](https://ollama.com/) | `http://localhost:11434/v1` |
-| llama.cpp, vLLM, etc. | Whatever address the server listens on |
-
-If the server requires authentication, enter the key in the **API key** field.
+Only [LM Studio](https://lmstudio.ai/) has been tested: start its server from the Developer tab and
+enter `http://localhost:1234`. Other OpenAI-compatible servers (Ollama, llama.cpp, vLLM) may work
+but are unverified. If the server requires authentication, enter the key in the **API key** field.
 
 ## Known issues
 

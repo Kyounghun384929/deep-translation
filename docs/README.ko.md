@@ -17,7 +17,7 @@
 - 결과가 실시간으로 스트리밍 표시. 원문을 고치면 자동으로 다시 번역
 - 단축키 변경, 용어집, 라이트/다크 테마, Windows 시작 시 자동 실행
 - 쓰지 않을 때(기본 5분)는 엔진을 내려 RAM/VRAM 회수
-- LM Studio·Ollama 등 OpenAI 호환 서버로 전환 가능
+- 외부 LM Studio 서버로 전환 가능
 
 ## 설치
 
@@ -84,13 +84,9 @@ GPU가 없어도 동작하지만 눈에 띄게 느립니다. 모델별 실행 �
 
 설정에서 엔진을 **외부 서버 (OpenAI 호환)**로 바꾸면 직접 띄운 서버를 쓸 수 있습니다.
 
-| 서버 | 주소 |
-|---|---|
-| [LM Studio](https://lmstudio.ai/) | `http://localhost:1234` |
-| [Ollama](https://ollama.com/) | `http://localhost:11434/v1` |
-| llama.cpp · vLLM 등 | 기동 시 지정한 주소 |
-
-인증이 필요한 서버는 설정의 **API 키** 란에 입력합니다.
+검증된 서버는 [LM Studio](https://lmstudio.ai/)뿐입니다. 개발자(Developer) 탭에서 서버를 켜고
+`http://localhost:1234`를 입력하세요. 그 외 OpenAI 호환 서버(Ollama·llama.cpp·vLLM)는 동작할 수
+있지만 확인되지 않았습니다. 인증이 필요한 서버는 설정의 **API 키** 란에 입력합니다.
 
 ## 알려진 문제
 

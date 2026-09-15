@@ -10,17 +10,14 @@ namespace DeepTranslation.Windows;
 
 public partial class SettingsWindow : Window
 {
-    private const string AutoModel = "(자동 — 로드된 모델 사용)";
+    private static string AutoModel => UiText.Get("server.model.auto");
     private readonly LmStudioClient _client = new();
     private HotkeyGesture _gesture = HotkeyGesture.Default;
 
-    // 유휴 언로드 선택지 (표시 문자열 ↔ 분)
-    private static readonly string[] IdleChoices = { "사용 안 함", "3분 후", "5분 후", "10분 후" };
     private static readonly int[] IdleMinuteValues = { 0, 3, 5, 10 };
-
-    // 테마 선택지 (표시 문자열 ↔ 설정값)
-    private static readonly string[] ThemeChoices = { "시스템 기본", "라이트", "다크" };
     private static readonly string[] ThemeValues = { "System", "Light", "Dark" };
+    private static readonly string[] UiLanguageValues = { "en", "ko" };
+    private static readonly string[] UiLanguageChoices = { "English", "한국어" };
 
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _engineDownloadCts; // 모델 다운로드와 독립 (동시 진행 가능)
@@ -31,56 +28,48 @@ public partial class SettingsWindow : Window
         InitializeComponent();
 
         var s = App.Settings;
+        UiText.Lang = s.UiLanguage;
         ServerBox.Text = s.ServerUrl;
         ApiKeyBox.Text = s.ApiKey;
 
-        // 번역 엔진 섹션
         _suppressModelChanged = true;
-        foreach (var m in ModelCatalog.All) EmbeddedModelBox.Items.Add(FormatModelLabel(m));
+        foreach (var _ in ModelCatalog.All) EmbeddedModelBox.Items.Add("");
         int modelIdx = 0;
         for (int i = 0; i < ModelCatalog.All.Count; i++)
             if (ModelCatalog.All[i].Id == s.EmbeddedModelId) { modelIdx = i; break; }
         EmbeddedModelBox.SelectedIndex = modelIdx;
         _suppressModelChanged = false;
 
-        foreach (var c in IdleChoices) IdleUnloadBox.Items.Add(c);
+        foreach (var _ in IdleMinuteValues) IdleUnloadBox.Items.Add("");
         int idleIdx = Array.IndexOf(IdleMinuteValues, s.IdleUnloadMinutes);
         IdleUnloadBox.SelectedIndex = idleIdx >= 0 ? idleIdx : 2; // 목록에 없는 값이면 기본 5분
 
         bool embedded = s.EngineMode != "LmStudio";
         EmbeddedRadio.IsChecked = embedded;
         LmStudioRadio.IsChecked = !embedded;
-        RefreshEmbeddedUi();
-        RefreshBackendInfo();
-        RefreshEngineUi();
 
-        TargetBox.ItemsSource = LanguageMaps.TargetChoices;
-        TargetBox.SelectedItem = LanguageMaps.TargetChoices.Contains(s.TargetLanguage) ? s.TargetLanguage : "한국어";
-
-        KoreanSourceBox.ItemsSource = LanguageMaps.KoreanSourceChoices;
-        KoreanSourceBox.SelectedItem = LanguageMaps.KoreanSourceChoices.Contains(s.KoreanSourceTarget) ? s.KoreanSourceTarget : "영어";
+        foreach (var _ in LanguageMaps.TargetChoices) TargetBox.Items.Add("");
+        TargetBox.SelectedIndex = Math.Max(0, Array.IndexOf(LanguageMaps.TargetChoices, s.TargetLanguage));
+        foreach (var _ in LanguageMaps.KoreanSourceChoices) KoreanSourceBox.Items.Add("");
+        KoreanSourceBox.SelectedIndex = Math.Max(0, Array.IndexOf(LanguageMaps.KoreanSourceChoices, s.KoreanSourceTarget));
 
         GlossaryBox.Text = s.Glossary;
 
-        foreach (var c in ThemeChoices) ThemeBox.Items.Add(c);
+        foreach (var _ in ThemeValues) ThemeBox.Items.Add("");
         int themeIdx = Array.IndexOf(ThemeValues, s.Theme);
         ThemeBox.SelectedIndex = themeIdx >= 0 ? themeIdx : 0; // 알 수 없는 값이면 시스템 기본
 
+        foreach (var c in UiLanguageChoices) UiLanguageBox.Items.Add(c);
+        UiLanguageBox.SelectedIndex = Math.Max(0, Array.IndexOf(UiLanguageValues, s.UiLanguage));
+
         ModelBox.Items.Add(AutoModel);
-        if (!string.IsNullOrWhiteSpace(s.Model))
-        {
-            ModelBox.Items.Add(s.Model);
-            ModelBox.SelectedIndex = 1;
-        }
-        else
-        {
-            ModelBox.SelectedIndex = 0;
-        }
+        if (!string.IsNullOrWhiteSpace(s.Model)) { ModelBox.Items.Add(s.Model); ModelBox.SelectedIndex = 1; }
+        else ModelBox.SelectedIndex = 0;
 
         _gesture = HotkeyGesture.TryParse(s.HotkeyGesture) ?? HotkeyGesture.Default;
         HotkeyBox.Text = _gesture.ToString();
         DoublePressCheck.IsChecked = s.HotkeyDoublePress || _gesture.IsCopyGesture;
-        UpdateHotkeyUi(error: null);
+        ApplyLanguage();
 
         HotkeyCheck.IsChecked = s.HotkeyEnabled;
         StartupCheck.IsChecked = s.RunAtStartup;
@@ -90,6 +79,50 @@ public partial class SettingsWindow : Window
 
         Loaded += async (_, _) => await RefreshModelsAsync(silent: true);
     }
+
+    private void UiLanguage_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (UiLanguageBox.SelectedIndex < 0 || !IsLoaded) return;
+        UiText.Lang = UiLanguageValues[UiLanguageBox.SelectedIndex];
+        ApplyLanguage();
+    }
+
+    /// <summary>고정 라벨(Tag)과 코드에서 채우는 목록·상태 문자열을 현재 언어로 다시 그린다. 선택 상태는 유지.</summary>
+    private void ApplyLanguage()
+    {
+        Title = UiText.Get("title");
+        UiText.Apply(this);
+
+        RefreshModelLabels();
+        RelabelItems(IdleUnloadBox, IdleMinuteValues.Select(m => m == 0 ? UiText.Get("idle.never") : UiText.Format("idle.min", m)));
+        RelabelItems(ThemeBox, ThemeValues.Select(v => UiText.Get("theme." + v.ToLowerInvariant())));
+        RelabelItems(TargetBox, LanguageMaps.TargetChoices.Select(LanguageName));
+        RelabelItems(KoreanSourceBox, LanguageMaps.KoreanSourceChoices.Select(LanguageName));
+
+        // 외부 서버 모델 목록의 "(자동)" 항목은 항상 첫 번째
+        bool wasAuto = ModelBox.SelectedIndex == 0;
+        string typed = ModelBox.Text;
+        ModelBox.Items[0] = AutoModel;
+        if (wasAuto) ModelBox.SelectedIndex = 0; else ModelBox.Text = typed;
+
+        RefreshEmbeddedUi();
+        RefreshBackendInfo();
+        RefreshEngineUi();
+        UpdateHotkeyUi(error: null);
+        if (ServerStatus.Foreground is SolidColorBrush { Color: var c } && c == Colors.Gray) ServerStatus.Text = UiText.Get("server.hint");
+    }
+
+    private static void RelabelItems(ComboBox box, IEnumerable<string> labels)
+    {
+        int sel = box.SelectedIndex;
+        int i = 0;
+        foreach (var l in labels) box.Items[i++] = l;
+        box.SelectedIndex = sel;
+    }
+
+    /// <summary>언어 목록 표시명 — 영어 UI에서는 영어 이름, 저장값은 항상 한국어 키.</summary>
+    private static string LanguageName(string koreanName) =>
+        UiText.Lang == "ko" ? koreanName : LanguageMaps.ToEnglish(koreanName);
 
     private async Task RefreshModelsAsync(bool silent)
     {
@@ -107,14 +140,14 @@ public partial class SettingsWindow : Window
             else if (ModelBox.Items.Contains(current)) ModelBox.SelectedItem = current;
             else ModelBox.Text = current; // 목록에 없는 직접 입력 모델명은 유지
 
-            ServerStatus.Text = $"연결 성공 — 사용 가능한 모델 {models.Count}개";
+            ServerStatus.Text = UiText.Format("server.ok", models.Count);
             ServerStatus.Foreground = Brushes.Green;
         }
         catch (Exception)
         {
             if (!silent)
             {
-                ServerStatus.Text = "연결 실패 — 서버가 실행 중인지, 주소·API 키가 맞는지 확인하세요.";
+                ServerStatus.Text = UiText.Get("server.fail");
                 ServerStatus.Foreground = Brushes.Red;
             }
         }
@@ -125,7 +158,10 @@ public partial class SettingsWindow : Window
     private ModelCatalog.ModelInfo SelectedModel => ModelCatalog.All[Math.Max(0, EmbeddedModelBox.SelectedIndex)];
 
     private static string FormatModelLabel(ModelCatalog.ModelInfo m) =>
-        $"{m.DisplayName} · {m.SizeText}" + (m.IsDownloaded ? " · 다운로드됨 ✓" : "");
+        m.DisplayName
+        + (m.Tag.Length > 0 ? $" ({UiText.Get("model.tag." + m.Tag)})" : "")
+        + $" · {m.SizeText}"
+        + (m.IsDownloaded ? $" · {UiText.Get("model.downloaded")}" : "");
 
     private void EngineMode_Changed(object sender, RoutedEventArgs e)
     {
@@ -146,9 +182,7 @@ public partial class SettingsWindow : Window
     /// </summary>
     private void RefreshBackendInfo()
     {
-        BackendInfo.Text = EmbeddedEngine.IsSmartAppControlOn
-            ? "엔진: 자동 — 스마트 앱 컨트롤이 감지되어 서명된 Ollama 엔진을 사용합니다."
-            : "엔진: 자동 — 경량 llama.cpp 엔진을 사용합니다.";
+        BackendInfo.Text = UiText.Get(EmbeddedEngine.IsSmartAppControlOn ? "engine.auto.ollama" : "engine.auto.llama");
     }
 
     /// <summary>활성 백엔드의 엔진 설치 상태에 맞춰 사전 다운로드 버튼·상태 텍스트를 갱신한다.</summary>
@@ -158,15 +192,11 @@ public partial class SettingsWindow : Window
         bool installed = ollama ? OllamaEngine.IsBinaryInstalled : EmbeddedEngine.IsBinaryInstalled;
         bool downloading = _engineDownloadCts != null;
 
-        EngineDownloadButton.Content = downloading ? "취소" : "엔진 다운로드";
+        EngineDownloadButton.Content = UiText.Get(downloading ? "cancel" : "engine.binary.download");
         EngineDownloadButton.Visibility = installed && !downloading ? Visibility.Collapsed : Visibility.Visible;
         if (downloading) return; // 진행 중 텍스트는 진행 콜백이 갱신한다
 
-        EngineStatus.Text = installed
-            ? "엔진 다운로드됨 ✓"
-            : ollama
-                ? "엔진이 아직 다운로드되지 않았습니다 (약 1.4GB 다운로드 후 119MB만 저장, 첫 번역 시 자동 진행)"
-                : "엔진이 아직 다운로드되지 않았습니다 (약 33MB, 첫 번역 시 자동 진행)";
+        EngineStatus.Text = UiText.Get(installed ? "engine.installed" : ollama ? "engine.missing.ollama" : "engine.missing.llama");
     }
 
     private async void EngineDownload_Click(object sender, RoutedEventArgs e)
@@ -197,11 +227,11 @@ public partial class SettingsWindow : Window
         }
         catch (OperationCanceledException)
         {
-            message = "다운로드를 중단했습니다. 다시 시작하면 이어받습니다.";
+            message = UiText.Get("download.cancelled");
         }
         catch (Exception ex)
         {
-            message = "다운로드 실패: " + ex.Message;
+            message = UiText.Format("download.failed", ex.Message);
         }
         finally
         {
@@ -217,18 +247,16 @@ public partial class SettingsWindow : Window
     private void RefreshEmbeddedUi()
     {
         var m = SelectedModel;
-        EmbeddedLicense.Text = m.LicenseNote;
+        EmbeddedLicense.Text = UiText.Get(m.LicenseKey);
 
         bool downloading = _downloadCts != null;
         bool downloaded = m.IsDownloaded;
-        DownloadButton.Content = downloading ? "취소" : "다운로드";
+        DownloadButton.Content = UiText.Get(downloading ? "cancel" : "engine.download");
         DownloadButton.IsEnabled = downloading || !downloaded;
         DeleteModelButton.Visibility = !downloading && downloaded ? Visibility.Visible : Visibility.Collapsed;
         if (!downloading)
         {
-            DownloadStatus.Text = downloaded
-                ? "다운로드 완료 — 바로 사용할 수 있습니다."
-                : $"모델을 내려받아야 내장 번역을 사용할 수 있습니다. ({m.SizeText}, 1회)";
+            DownloadStatus.Text = downloaded ? UiText.Get("model.ready") : UiText.Format("model.required", m.SizeText);
         }
     }
 
@@ -271,11 +299,11 @@ public partial class SettingsWindow : Window
         }
         catch (OperationCanceledException)
         {
-            DownloadStatus.Text = "다운로드를 중단했습니다. 다시 시작하면 이어받습니다.";
+            DownloadStatus.Text = UiText.Get("download.cancelled");
         }
         catch (Exception ex)
         {
-            DownloadStatus.Text = "다운로드 실패: " + ex.Message;
+            DownloadStatus.Text = UiText.Format("download.failed", ex.Message);
         }
         finally
         {
@@ -291,7 +319,7 @@ public partial class SettingsWindow : Window
     private void DeleteModel_Click(object sender, RoutedEventArgs e)
     {
         var m = SelectedModel;
-        if (MessageBox.Show($"'{m.DisplayName}' 모델 파일({m.SizeText})을 삭제할까요?",
+        if (MessageBox.Show(UiText.Format("delete.confirm", m.DisplayName, m.SizeText),
                 "Deep Translation", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;
 
@@ -304,7 +332,7 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex)
         {
-            DownloadStatus.Text = "삭제 실패: " + ex.Message;
+            DownloadStatus.Text = UiText.Format("delete.failed", ex.Message);
             return;
         }
         RefreshModelLabels();
@@ -335,7 +363,7 @@ public partial class SettingsWindow : Window
 
         if (!gesture.IsValid)
         {
-            UpdateHotkeyUi("문자·숫자 키는 Ctrl, Alt, Win 중 하나와 조합해야 합니다. (F1–F24는 단독 사용 가능)");
+            UpdateHotkeyUi(UiText.Get("hotkey.invalid"));
             return;
         }
 
@@ -370,10 +398,8 @@ public partial class SettingsWindow : Window
         HotkeyHint.Foreground = Brushes.Gray;
         bool doublePress = DoublePressCheck.IsChecked == true;
         HotkeyHint.Text = _gesture.IsCopyGesture
-            ? "복사 단축키(Ctrl+C)와 같으므로 빠르게 두 번 눌러야 실행됩니다."
-            : doublePress
-                ? $"{_gesture} 키를 빠르게 두 번 누르면 선택한 텍스트를 자동으로 복사해 번역합니다."
-                : $"{_gesture} 키를 누르면 선택한 텍스트를 자동으로 복사해 번역합니다.";
+            ? UiText.Get("hotkey.copy")
+            : UiText.Format(doublePress ? "hotkey.double.desc" : "hotkey.single.desc", _gesture);
     }
 
     private async void Test_Click(object sender, RoutedEventArgs e) => await RefreshModelsAsync(silent: false);
@@ -390,8 +416,8 @@ public partial class SettingsWindow : Window
         s.ApiKey = ApiKeyBox.Text.Trim();
         string typedModel = ModelBox.Text.Trim();
         s.Model = typedModel.Length == 0 || typedModel == AutoModel ? "" : typedModel;
-        s.TargetLanguage = TargetBox.SelectedItem as string ?? "한국어";
-        s.KoreanSourceTarget = KoreanSourceBox.SelectedItem as string ?? "영어";
+        s.TargetLanguage = LanguageMaps.TargetChoices[Math.Max(0, TargetBox.SelectedIndex)];
+        s.KoreanSourceTarget = LanguageMaps.KoreanSourceChoices[Math.Max(0, KoreanSourceBox.SelectedIndex)];
         s.Glossary = GlossaryBox.Text;
         s.Theme = ThemeValues[Math.Max(0, ThemeBox.SelectedIndex)];
         s.HotkeyGesture = _gesture.ToString();
@@ -401,15 +427,14 @@ public partial class SettingsWindow : Window
         s.AutoUpdateCheck = UpdateCheck.IsChecked == true;
         s.PopupNearCursor = CursorCheck.IsChecked == true;
         s.CloseOnFocusLoss = FocusCheck.IsChecked == true;
+        s.UiLanguage = UiLanguageValues[Math.Max(0, UiLanguageBox.SelectedIndex)];
 
         App.Instance.ApplySettings();
 
         // 미다운로드 모델로 저장하는 것은 허용하되 안내한다
         if (s.EngineMode == "Embedded" && !SelectedModel.IsDownloaded)
         {
-            MessageBox.Show(
-                $"선택한 모델('{SelectedModel.DisplayName}')이 아직 다운로드되지 않았습니다.\n" +
-                "번역을 사용하려면 설정 → 번역 엔진에서 모델을 다운로드하세요.",
+            MessageBox.Show(UiText.Format("save.nomodel", SelectedModel.DisplayName),
                 "Deep Translation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         Close();

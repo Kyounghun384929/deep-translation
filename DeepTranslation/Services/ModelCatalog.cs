@@ -7,7 +7,7 @@ public static class ModelCatalog
 {
     /// <summary>카탈로그 항목. Id는 llama-server의 모델 별칭(-a)으로도 사용된다.</summary>
     public sealed record ModelInfo(string Id, string DisplayName, string FileName,
-        string Url, long SizeBytes, string LicenseNote)
+        string Url, long SizeBytes, string LicenseKey, string Tag = "")
     {
         public string FilePath => Path.Combine(ModelsDir, FileName);
 
@@ -25,30 +25,30 @@ public static class ModelCatalog
 
     public static readonly IReadOnlyList<ModelInfo> All = new[]
     {
-        new ModelInfo("qwen3.5-4b", "Qwen3.5 4B (권장)",
+        new ModelInfo("qwen3.5-4b", "Qwen3.5 4B",
             "Qwen3.5-4B-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
-            2740937888, "Apache-2.0 · 상업 이용 자유"),
-        new ModelInfo("hy-mt2-7b", "Hy-MT2 7B (번역 특화)",
+            2740937888, "license.apache", "recommended"),
+        new ModelInfo("hy-mt2-7b", "Hy-MT2 7B",
             "Hy-MT2-7B-Q4_K_M.gguf",
             "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/main/Hy-MT2-7B-Q4_K_M.gguf",
-            4624648896, "Apache-2.0 · 상업 이용 자유"),
+            4624648896, "license.apache", "mt"),
         new ModelInfo("qwen3-4b-instruct-2507", "Qwen3 4B Instruct",
             "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-            2497281120, "Apache-2.0 · 상업 이용 자유"),
+            2497281120, "license.apache"),
         new ModelInfo("gemma-4-e4b-it", "Gemma 4 E4B",
             "gemma-4-E4B-it-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf",
-            4977171584, "Apache-2.0 · 상업 이용 자유"),
-        new ModelInfo("exaone-3.5-2.4b", "EXAONE 3.5 2.4B (한국어 특화)",
+            4977171584, "license.apache"),
+        new ModelInfo("exaone-3.5-2.4b", "EXAONE 3.5 2.4B",
             "EXAONE-3.5-2.4B-Instruct-Q4_K_M.gguf",
             "https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct-GGUF/resolve/main/EXAONE-3.5-2.4B-Instruct-Q4_K_M.gguf",
-            1644918272, "비상업(연구) 용도 한정 라이선스"),
-        new ModelInfo("hyperclovax-seed-1.5b", "HyperCLOVA X SEED 1.5B (경량)",
+            1644918272, "license.nc", "korean"),
+        new ModelInfo("hyperclovax-seed-1.5b", "HyperCLOVA X SEED 1.5B",
             "hyperclovax-seed-text-instruct-1.5b-q4_k_m.gguf",
             "https://huggingface.co/rippertnt/HyperCLOVAX-SEED-Text-Instruct-1.5B-Q4_K_M-GGUF/resolve/main/hyperclovax-seed-text-instruct-1.5b-q4_k_m.gguf",
-            1133974368, "상업 이용 가능 (월 1천만 MAU 이하)"),
+            1133974368, "license.clova", "light"),
     };
 
     public static ModelInfo? Find(string id) => All.FirstOrDefault(m => m.Id == id);

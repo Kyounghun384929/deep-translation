@@ -7,6 +7,9 @@ namespace DeepTranslation.Models;
 public class AppSettings
 {
     /// <summary>번역 엔진 모드: "Embedded"(내장 llama.cpp) 또는 "LmStudio".</summary>
+    /// <summary>설정 창 언어: "en" | "ko".</summary>
+    public string UiLanguage { get; set; } = "en";
+
     public string EngineMode { get; set; } = "Embedded";
 
     /// <summary>내장 엔진에서 사용할 모델의 카탈로그 Id (ModelCatalog 참조).</summary>
