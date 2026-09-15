@@ -17,7 +17,7 @@ Translation runs on a local LLM inside your PC, so your text never leaves the ma
 - Streams the result token by token. Edit the source text and it re-translates automatically
 - Custom hotkey, glossary, light/dark theme, run at Windows startup
 - Unloads the engine when idle (default 5 min) to free RAM/VRAM
-- Can switch to an external LM Studio server
+- Can switch to any external OpenAI-compatible server (LM Studio, Ollama, llama.cpp, vLLM)
 
 ## Installation
 

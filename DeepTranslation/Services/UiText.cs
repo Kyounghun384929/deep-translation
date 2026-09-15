@@ -46,7 +46,7 @@ public static class UiText
 
         // 엔진
         ["engine.embedded"] = ("Built-in model (recommended)", "내장 모델 (권장)"),
-        ["engine.external"] = ("External server (LM Studio)", "외부 서버 (LM Studio)"),
+        ["engine.external"] = ("External server (OpenAI-compatible)", "외부 서버 (OpenAI 호환)"),
         ["engine.model"] = ("Model", "모델"),
         ["engine.download"] = ("Download", "다운로드"),
         ["engine.delete"] = ("Delete", "삭제"),
@@ -80,7 +80,7 @@ public static class UiText
         // 외부 서버
         ["server.url"] = ("Server address", "서버 주소"),
         ["server.test"] = ("Test", "연결 테스트"),
-        ["server.hint"] = ("LM Studio: http://localhost:1234 (Developer tab → Start server)", "LM Studio: http://localhost:1234 (개발자 탭 → 서버 시작)"),
+        ["server.hint"] = ("Any OpenAI-compatible server. Presets: LM Studio :1234, Ollama :11434, llama-server :8080, vLLM :8000", "OpenAI 호환 서버 아무거나. 프리셋: LM Studio :1234, Ollama :11434, llama-server :8080, vLLM :8000"),
         ["server.ok"] = ("Connected — {0} model(s) available", "연결 성공 — 사용 가능한 모델 {0}개"),
         ["server.fail"] = ("Connection failed — check the server is running and the address/API key.", "연결 실패 — 서버 실행 여부와 주소·API 키 확인"),
         ["server.apikey"] = ("API key (optional)", "API 키 (선택)"),

@@ -29,6 +29,14 @@ public partial class SettingsWindow : Window
 
         var s = App.Settings;
         UiText.Lang = s.UiLanguage;
+        // 자주 쓰는 OpenAI 호환 서버 기본 주소 — 직접 입력도 가능
+        ServerBox.ItemsSource = new[]
+        {
+            "http://localhost:1234",  // LM Studio
+            "http://localhost:11434", // Ollama
+            "http://localhost:8080",  // llama-server
+            "http://localhost:8000",  // vLLM
+        };
         ServerBox.Text = s.ServerUrl;
         ApiKeyBox.Text = s.ApiKey;
 

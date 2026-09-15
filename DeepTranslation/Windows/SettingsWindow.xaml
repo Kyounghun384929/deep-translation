@@ -100,7 +100,7 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBox x:Name="ServerBox" Grid.Column="0" Style="{StaticResource Field}"/>
+                                <ComboBox x:Name="ServerBox" Grid.Column="0" Style="{StaticResource Field}" IsEditable="True"/>
                                 <Button Grid.Column="1" Tag="server.test" Style="{StaticResource Action}" Click="Test_Click"/>
                             </Grid>
                             <TextBlock x:Name="ServerStatus" Tag="server.hint" Style="{StaticResource Hint}"/>
