@@ -248,6 +248,9 @@ public partial class SettingsWindow : Window
         RefreshEmbeddedUi();
     }
 
+    // 마우스로 고르면 목록을 접는다 (키보드 화살표 이동 중에는 펼친 채로 둔다)
+    private void ModelList_MouseUp(object sender, MouseButtonEventArgs e) => ModelToggle.IsChecked = false;
+
     // 다운로드·삭제·파일 선택 후 카드의 "받음 ✓" 표시를 갱신한다
     private void RefreshModelLabels()
     {
