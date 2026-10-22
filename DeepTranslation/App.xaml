@@ -4,20 +4,23 @@
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
 
-        <!-- 팝업 팔레트 (기본값은 다크 — ThemeManager가 테마에 따라 인스턴스를 교체하므로 DynamicResource로 참조) -->
-        <SolidColorBrush x:Key="BgBrush" Color="#1E1F26"/>
-        <SolidColorBrush x:Key="PanelBrush" Color="#262833"/>
-        <SolidColorBrush x:Key="LineBrush" Color="#3A3D4A"/>
-        <SolidColorBrush x:Key="TextBrush" Color="#ECECF1"/>
-        <SolidColorBrush x:Key="SubTextBrush" Color="#9AA0AE"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#5B8CFF"/>
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#6F9AFF"/>
-        <SolidColorBrush x:Key="ErrorBrush" Color="#FF7B7B"/>
+        <!-- 앱 팔레트 (기본값은 다크 — ThemeManager가 테마에 따라 인스턴스를 교체하므로 DynamicResource로 참조) -->
+        <SolidColorBrush x:Key="BgBrush" Color="#17171C"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#202027"/>
+        <SolidColorBrush x:Key="LineBrush" Color="#33333D"/>
+        <SolidColorBrush x:Key="FieldBrush" Color="#2C2C35"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#ECECEF"/>
+        <SolidColorBrush x:Key="SubTextBrush" Color="#9E9EA7"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#1E6EE8"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#3A82F0"/>
+        <SolidColorBrush x:Key="AccentTextBrush" Color="#6EA8FE"/>
+        <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B76"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="#2BC48A"/>
         <!-- 템플릿 상태색 (hover·checked·selected 오버레이) -->
-        <SolidColorBrush x:Key="HoverOverlayBrush" Color="#33FFFFFF"/>
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="#405B8CFF"/>
-        <SolidColorBrush x:Key="AccentHighlightBrush" Color="#335B8CFF"/>
-        <SolidColorBrush x:Key="AccentSelectedBrush" Color="#505B8CFF"/>
+        <SolidColorBrush x:Key="HoverOverlayBrush" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#1A3157"/>
+        <SolidColorBrush x:Key="AccentHighlightBrush" Color="#2C2C35"/>
+        <SolidColorBrush x:Key="AccentSelectedBrush" Color="#1A3157"/>
 
         <!-- 다크 텍스트 입력창 -->
         <Style x:Key="DarkTextBox" TargetType="TextBox">

@@ -2,9 +2,9 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using DeepTranslation.Models;
 using DeepTranslation.Services;
+using Microsoft.Win32;
 
 namespace DeepTranslation.Windows;
 
@@ -15,42 +15,54 @@ public partial class SettingsWindow : Window
     private HotkeyGesture _gesture = HotkeyGesture.Default;
 
     private static readonly int[] IdleMinuteValues = { 0, 3, 5, 10 };
+    private static readonly int[] ContextValues = { 4096, 8192, 16384, 32768 };
     private static readonly string[] ThemeValues = { "System", "Light", "Dark" };
     private static readonly string[] UiLanguageValues = { "en", "ko" };
     private static readonly string[] UiLanguageChoices = { "English", "한국어" };
 
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _engineDownloadCts; // 모델 다운로드와 독립 (동시 진행 가능)
+    private bool _checkingEngine;
+    private string? _pendingEngineTag; // 업데이트 확인으로 찾은 새 llama.cpp 태그 (설치 대기)
     private bool _suppressModelChanged;
+    private bool _serverStatusIsHint = true; // 서버 상태줄이 기본 안내 문구인지 (언어 전환 시 다시 그림)
+    private string _customPath;
+
+    /// <summary>모델 카드 한 줄 (ModelCards 템플릿이 바인딩).</summary>
+    public sealed record ModelRow(string Name, string Badge, string Detail, string State, bool Ready)
+    {
+        public Visibility BadgeVisibility => Badge.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public SettingsWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => ThemeManager.ApplyTitleBar(this);
 
         var s = App.Settings;
         UiText.Lang = s.UiLanguage;
-        // 자주 쓰는 OpenAI 호환 서버 기본 주소 — 직접 입력도 가능
-        ServerBox.ItemsSource = new[]
-        {
-            "http://localhost:1234",  // LM Studio
-            "http://localhost:11434", // Ollama
-            "http://localhost:8080",  // llama-server
-            "http://localhost:8000",  // vLLM
-        };
+        VersionText.Text = $"Deep Translation v{UpdateChecker.CurrentVersion}";
         ServerBox.Text = s.ServerUrl;
         ApiKeyBox.Text = s.ApiKey;
+        _customPath = s.CustomModelPath;
+        CustomPathBox.Text = _customPath;
 
-        _suppressModelChanged = true;
-        foreach (var _ in ModelCatalog.All) EmbeddedModelBox.Items.Add("");
-        int modelIdx = 0;
+        // 카탈로그 모델 뒤에 "내 GGUF 파일" 항목이 붙는다
+        RefreshModelLabels();
+        int modelIdx = s.EmbeddedModelId == ModelCatalog.CustomId ? ModelCatalog.All.Count : 0;
         for (int i = 0; i < ModelCatalog.All.Count; i++)
             if (ModelCatalog.All[i].Id == s.EmbeddedModelId) { modelIdx = i; break; }
-        EmbeddedModelBox.SelectedIndex = modelIdx;
+        _suppressModelChanged = true;
+        ModelList.SelectedIndex = modelIdx;
         _suppressModelChanged = false;
 
         foreach (var _ in IdleMinuteValues) IdleUnloadBox.Items.Add("");
         int idleIdx = Array.IndexOf(IdleMinuteValues, s.IdleUnloadMinutes);
         IdleUnloadBox.SelectedIndex = idleIdx >= 0 ? idleIdx : 2; // 목록에 없는 값이면 기본 5분
+
+        foreach (var _ in ContextValues) ContextBox.Items.Add("");
+        int ctxIdx = Array.IndexOf(ContextValues, s.ContextSize);
+        ContextBox.SelectedIndex = ctxIdx >= 0 ? ctxIdx : 1; // 목록에 없는 값이면 기본 8K
 
         bool embedded = s.EngineMode != "LmStudio";
         EmbeddedRadio.IsChecked = embedded;
@@ -70,9 +82,7 @@ public partial class SettingsWindow : Window
         foreach (var c in UiLanguageChoices) UiLanguageBox.Items.Add(c);
         UiLanguageBox.SelectedIndex = Math.Max(0, Array.IndexOf(UiLanguageValues, s.UiLanguage));
 
-        ModelBox.Items.Add(AutoModel);
-        if (!string.IsNullOrWhiteSpace(s.Model)) { ModelBox.Items.Add(s.Model); ModelBox.SelectedIndex = 1; }
-        else ModelBox.SelectedIndex = 0;
+        FillModelBox(Array.Empty<string>(), s.Model);
 
         _gesture = HotkeyGesture.TryParse(s.HotkeyGesture) ?? HotkeyGesture.Default;
         HotkeyBox.Text = _gesture.ToString();
@@ -84,8 +94,17 @@ public partial class SettingsWindow : Window
         UpdateCheck.IsChecked = s.AutoUpdateCheck;
         CursorCheck.IsChecked = s.PopupNearCursor;
         FocusCheck.IsChecked = s.CloseOnFocusLoss;
+        NavList.SelectedIndex = 0;
 
-        Loaded += async (_, _) => await RefreshModelsAsync(silent: true);
+        // 외부 서버 모드일 때만 서버에 모델 목록을 묻는다 (내장 모드에서 LM Studio를 깨우지 않게)
+        Loaded += async (_, _) => { if (LmStudioRadio.IsChecked == true) await RefreshModelsAsync(silent: true); };
+    }
+
+    private void Nav_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        var pages = new UIElement[] { EnginePage, TranslationPage, HotkeyPage, GeneralPage };
+        for (int i = 0; i < pages.Length; i++)
+            pages[i].Visibility = i == NavList.SelectedIndex ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UiLanguage_Changed(object sender, SelectionChangedEventArgs e)
@@ -103,21 +122,20 @@ public partial class SettingsWindow : Window
 
         RefreshModelLabels();
         RelabelItems(IdleUnloadBox, IdleMinuteValues.Select(m => m == 0 ? UiText.Get("idle.never") : UiText.Format("idle.min", m)));
+        RelabelItems(ContextBox, ContextValues.Select(v => $"{v / 1024}K" + (v == 8192 ? $" · {UiText.Get("ctx.default")}" : "")));
         RelabelItems(ThemeBox, ThemeValues.Select(v => UiText.Get("theme." + v.ToLowerInvariant())));
         RelabelItems(TargetBox, LanguageMaps.TargetChoices.Select(LanguageName));
         RelabelItems(KoreanSourceBox, LanguageMaps.KoreanSourceChoices.Select(LanguageName));
 
         // 외부 서버 모델 목록의 "(자동)" 항목은 항상 첫 번째
-        bool wasAuto = ModelBox.SelectedIndex == 0;
-        string typed = ModelBox.Text;
+        int modelSel = ModelBox.SelectedIndex;
         ModelBox.Items[0] = AutoModel;
-        if (wasAuto) ModelBox.SelectedIndex = 0; else ModelBox.Text = typed;
+        ModelBox.SelectedIndex = modelSel;
 
         RefreshEmbeddedUi();
-        RefreshBackendInfo();
         RefreshEngineUi();
         UpdateHotkeyUi(error: null);
-        if (ServerStatus.Foreground is SolidColorBrush { Color: var c } && c == Colors.Gray) ServerStatus.Text = UiText.Get("server.hint");
+        if (_serverStatusIsHint) ServerStatus.Text = UiText.Get("server.hint");
     }
 
     private static void RelabelItems(ComboBox box, IEnumerable<string> labels)
@@ -132,50 +150,96 @@ public partial class SettingsWindow : Window
     private static string LanguageName(string koreanName) =>
         UiText.Lang == "ko" ? koreanName : LanguageMaps.ToEnglish(koreanName);
 
+    /// <summary>상태 문구 색을 팔레트 키로 지정한다 (테마가 바뀌어도 따라가도록 리소스 참조).</summary>
+    private static void SetTone(TextBlock text, string brushKey) =>
+        text.SetResourceReference(TextBlock.ForegroundProperty, brushKey);
+
+    // ---- 외부 서버 ----
+
+    private string SelectedServerModel => ModelBox.SelectedIndex > 0 ? (string)ModelBox.SelectedItem : "";
+
+    private void FillModelBox(IEnumerable<string> models, string current)
+    {
+        ModelBox.Items.Clear();
+        ModelBox.Items.Add(AutoModel);
+        foreach (var m in models) ModelBox.Items.Add(m);
+        // 서버가 꺼져 있거나 목록에 없어도 저장된 모델은 유지한다
+        if (current.Length > 0 && !ModelBox.Items.Contains(current)) ModelBox.Items.Add(current);
+        ModelBox.SelectedItem = current.Length > 0 ? current : AutoModel;
+    }
+
     private async Task RefreshModelsAsync(bool silent)
     {
         try
         {
-            var current = ModelBox.Text;
+            string current = SelectedServerModel;
             // 연결 테스트·새로고침은 항상 서버에 최신 상태를 다시 물어본다
             var models = await _client.GetModelsAsync(ServerBox.Text, CancellationToken.None, bypassCache: true,
                 apiKey: ApiKeyBox.Text);
-
-            ModelBox.Items.Clear();
-            ModelBox.Items.Add(AutoModel);
-            foreach (var m in models) ModelBox.Items.Add(m);
-            if (string.IsNullOrWhiteSpace(current)) ModelBox.SelectedItem = AutoModel;
-            else if (ModelBox.Items.Contains(current)) ModelBox.SelectedItem = current;
-            else ModelBox.Text = current; // 목록에 없는 직접 입력 모델명은 유지
-
+            FillModelBox(models, current);
             ServerStatus.Text = UiText.Format("server.ok", models.Count);
-            ServerStatus.Foreground = Brushes.Green;
+            SetTone(ServerStatus, "SuccessBrush");
+            _serverStatusIsHint = false;
         }
         catch (Exception)
         {
-            if (!silent)
-            {
-                ServerStatus.Text = UiText.Get("server.fail");
-                ServerStatus.Foreground = Brushes.Red;
-            }
+            if (silent) return;
+            ServerStatus.Text = UiText.Get("server.fail");
+            SetTone(ServerStatus, "ErrorBrush");
+            _serverStatusIsHint = false;
         }
     }
 
-    // ---- 번역 엔진 ----
+    private async void Preset_Click(object sender, RoutedEventArgs e)
+    {
+        ServerBox.Text = (string)((Button)sender).CommandParameter;
+        await RefreshModelsAsync(silent: false);
+    }
 
-    private ModelCatalog.ModelInfo SelectedModel => ModelCatalog.All[Math.Max(0, EmbeddedModelBox.SelectedIndex)];
+    /// <summary>프리셋 포트들을 동시에 확인해 응답한 첫 서버(프리셋 순서 우선)를 채운다.</summary>
+    private async void Detect_Click(object sender, RoutedEventArgs e)
+    {
+        ServerStatus.Text = UiText.Get("server.detecting");
+        SetTone(ServerStatus, "SubTextBrush");
+        _serverStatusIsHint = false;
 
-    private static string FormatModelLabel(ModelCatalog.ModelInfo m) =>
-        m.DisplayName
-        + (m.Tag.Length > 0 ? $" ({UiText.Get("model.tag." + m.Tag)})" : "")
-        + $" · {m.SizeText}"
-        + (m.IsDownloaded ? $" · {UiText.Get("model.downloaded")}" : "");
+        var urls = PresetPanel.Children.OfType<Button>().Select(b => (string)b.CommandParameter).ToArray();
+        var alive = await Task.WhenAll(urls.Select(async url =>
+        {
+            try { await _client.GetModelsAsync(url, CancellationToken.None, bypassCache: true); return true; }
+            catch { return false; } // 꺼진 포트·다른 웹 서버(비 JSON 응답) 모두 미발견
+        }));
+
+        int found = Array.IndexOf(alive, true);
+        if (found < 0)
+        {
+            ServerStatus.Text = UiText.Get("server.detect.none");
+            SetTone(ServerStatus, "ErrorBrush");
+            return;
+        }
+        ServerBox.Text = urls[found];
+        await RefreshModelsAsync(silent: false);
+    }
+
+    private async void Test_Click(object sender, RoutedEventArgs e) => await RefreshModelsAsync(silent: false);
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshModelsAsync(silent: false);
+
+    // ---- 내장 엔진: 모델 ----
+
+    private bool IsCustomSelected => ModelList.SelectedIndex == ModelCatalog.All.Count;
+
+    /// <summary>선택한 모델. "내 GGUF 파일"인데 파일을 아직 고르지 않았으면 null.</summary>
+    private ModelCatalog.ModelInfo? SelectedModel => IsCustomSelected
+        ? ModelCatalog.Custom(_customPath)
+        : ModelCatalog.All[Math.Max(0, ModelList.SelectedIndex)];
 
     private void EngineMode_Changed(object sender, RoutedEventArgs e)
     {
         bool embedded = EmbeddedRadio.IsChecked == true;
         EmbeddedPanel.Visibility = embedded ? Visibility.Visible : Visibility.Collapsed;
         LmStudioPanel.Visibility = embedded ? Visibility.Collapsed : Visibility.Visible;
+        if (!embedded && IsLoaded) _ = RefreshModelsAsync(silent: true);
     }
 
     private void EmbeddedModel_Changed(object sender, SelectionChangedEventArgs e)
@@ -184,99 +248,66 @@ public partial class SettingsWindow : Window
         RefreshEmbeddedUi();
     }
 
-    /// <summary>
-    /// 자동 선택된 내장 백엔드를 읽기 전용으로 안내한다 (사용자 선택 없음).
-    /// SAC 켜짐이면 서명된 Ollama, 꺼짐이면 경량 llama.cpp를 자동으로 사용한다.
-    /// </summary>
-    private void RefreshBackendInfo()
-    {
-        BackendInfo.Text = UiText.Get(EmbeddedEngine.IsSmartAppControlOn ? "engine.auto.ollama" : "engine.auto.llama");
-    }
-
-    /// <summary>활성 백엔드의 엔진 설치 상태에 맞춰 사전 다운로드 버튼·상태 텍스트를 갱신한다.</summary>
-    private void RefreshEngineUi()
-    {
-        bool ollama = OllamaEngine.UseOllamaBackend;
-        bool installed = ollama ? OllamaEngine.IsBinaryInstalled : EmbeddedEngine.IsBinaryInstalled;
-        bool downloading = _engineDownloadCts != null;
-
-        EngineDownloadButton.Content = UiText.Get(downloading ? "cancel" : "engine.binary.download");
-        EngineDownloadButton.Visibility = installed && !downloading ? Visibility.Collapsed : Visibility.Visible;
-        if (downloading) return; // 진행 중 텍스트는 진행 콜백이 갱신한다
-
-        EngineStatus.Text = UiText.Get(installed ? "engine.installed" : ollama ? "engine.missing.ollama" : "engine.missing.llama");
-    }
-
-    private async void EngineDownload_Click(object sender, RoutedEventArgs e)
-    {
-        if (_engineDownloadCts != null) // 진행 중이면 버튼은 [취소]로 동작
-        {
-            _engineDownloadCts.Cancel();
-            return;
-        }
-
-        var cts = _engineDownloadCts = new CancellationTokenSource();
-        EngineDownloadBar.Visibility = Visibility.Visible;
-        EngineDownloadBar.Value = 0;
-        RefreshEngineUi();
-        string? message = null; // 취소·실패 안내 (완료 후 상태 갱신에 덮이지 않게 마지막에 표시)
-        try
-        {
-            void OnProgress(long received, long total)
-            {
-                double pct = total > 0 ? received * 100.0 / total : 0;
-                EngineDownloadBar.Value = pct;
-                EngineStatus.Text = $"{received / 1048576.0:0} / {total / 1048576.0:0} MB ({pct:0}%)";
-            }
-            if (OllamaEngine.UseOllamaBackend)
-                await OllamaEngine.DownloadBinaryAsync(OnProgress, cts.Token);
-            else
-                await EmbeddedEngine.DownloadBinaryAsync(OnProgress, cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            message = UiText.Get("download.cancelled");
-        }
-        catch (Exception ex)
-        {
-            message = UiText.Format("download.failed", ex.Message);
-        }
-        finally
-        {
-            _engineDownloadCts = null;
-            cts.Dispose();
-            EngineDownloadBar.Visibility = Visibility.Collapsed;
-            RefreshEngineUi();
-            if (message != null) EngineStatus.Text = message;
-        }
-    }
-
-    /// <summary>선택 모델 기준으로 라이선스·버튼·상태 표시를 갱신한다.</summary>
-    private void RefreshEmbeddedUi()
-    {
-        var m = SelectedModel;
-        EmbeddedLicense.Text = UiText.Get(m.LicenseKey);
-
-        bool downloading = _downloadCts != null;
-        bool downloaded = m.IsDownloaded;
-        DownloadButton.Content = UiText.Get(downloading ? "cancel" : "engine.download");
-        DownloadButton.IsEnabled = downloading || !downloaded;
-        DeleteModelButton.Visibility = !downloading && downloaded ? Visibility.Visible : Visibility.Collapsed;
-        if (!downloading)
-        {
-            DownloadStatus.Text = downloaded ? UiText.Get("model.ready") : UiText.Format("model.required", m.SizeText);
-        }
-    }
-
-    // 다운로드·삭제 후 콤보 항목의 "다운로드됨 ✓" 표시를 갱신한다
+    // 다운로드·삭제·파일 선택 후 카드의 "받음 ✓" 표시를 갱신한다
     private void RefreshModelLabels()
     {
         _suppressModelChanged = true;
-        int sel = EmbeddedModelBox.SelectedIndex;
-        for (int i = 0; i < ModelCatalog.All.Count; i++)
-            EmbeddedModelBox.Items[i] = FormatModelLabel(ModelCatalog.All[i]);
-        EmbeddedModelBox.SelectedIndex = sel < 0 ? 0 : sel;
+        int sel = ModelList.SelectedIndex;
+        var rows = ModelCatalog.All.Select(m => new ModelRow(
+            m.DisplayName,
+            m.Tag.Length > 0 ? UiText.Get("model.tag." + m.Tag) : "",
+            $"{m.SizeText} · {UiText.Get(m.LicenseKey)}",
+            m.IsDownloaded ? UiText.Get("model.downloaded") : "",
+            m.IsDownloaded)).ToList();
+        var custom = ModelCatalog.Custom(_customPath);
+        rows.Add(new ModelRow(UiText.Get("custom.name"), "", custom?.DisplayName ?? UiText.Get("custom.detail"),
+            custom is { IsDownloaded: true } ? custom.SizeText : "", custom is { IsDownloaded: true }));
+        ModelList.ItemsSource = rows;
+        ModelList.SelectedIndex = Math.Max(0, sel);
         _suppressModelChanged = false;
+    }
+
+    /// <summary>선택 모델 기준으로 동작 버튼·상태 표시를 갱신한다.</summary>
+    private void RefreshEmbeddedUi()
+    {
+        bool custom = IsCustomSelected;
+        CatalogActions.Visibility = custom ? Visibility.Collapsed : Visibility.Visible;
+        CustomActions.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        var m = SelectedModel;
+        if (custom)
+        {
+            DownloadStatus.Text = UiText.Get(m == null ? "custom.none" : m.IsDownloaded ? "custom.ready" : "custom.missing");
+            return;
+        }
+
+        bool downloading = _downloadCts != null;
+        bool downloaded = m!.IsDownloaded;
+        DownloadButton.Content = UiText.Get(downloading ? "cancel" : "engine.download");
+        DownloadButton.Visibility = downloading || !downloaded ? Visibility.Visible : Visibility.Collapsed;
+        DeleteModelButton.Visibility = !downloading && downloaded ? Visibility.Visible : Visibility.Collapsed;
+        if (!downloading)
+            DownloadStatus.Text = downloaded ? UiText.Get("model.ready") : UiText.Format("model.required", m.SizeText);
+    }
+
+    private void BrowseCustom_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Filter = "GGUF (*.gguf)|*.gguf", Title = UiText.Get("custom.name") };
+        string? dir = File.Exists(_customPath) ? Path.GetDirectoryName(_customPath) : LmStudioModelsDir();
+        if (dir != null) dlg.InitialDirectory = dir;
+        if (dlg.ShowDialog(this) != true) return;
+
+        _customPath = dlg.FileName;
+        CustomPathBox.Text = _customPath;
+        RefreshModelLabels();
+        RefreshEmbeddedUi();
+    }
+
+    // LM Studio가 모델을 받는 폴더 (신버전 ~/.lmstudio/models, 구버전 ~/.cache/lm-studio/models)
+    private static string? LmStudioModelsDir()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return new[] { Path.Combine(home, ".lmstudio", "models"), Path.Combine(home, ".cache", "lm-studio", "models") }
+            .FirstOrDefault(Directory.Exists);
     }
 
     private async void Download_Click(object sender, RoutedEventArgs e)
@@ -288,10 +319,10 @@ public partial class SettingsWindow : Window
         }
 
         var m = SelectedModel;
-        if (m.IsDownloaded) return;
+        if (m == null || m.IsDownloaded) return;
 
         var cts = _downloadCts = new CancellationTokenSource();
-        EmbeddedModelBox.IsEnabled = false; // 받는 동안 모델 변경 방지
+        ModelList.IsEnabled = false; // 받는 동안 모델 변경 방지
         DownloadBar.Visibility = Visibility.Visible;
         DownloadBar.Value = 0;
         RefreshEmbeddedUi();
@@ -317,7 +348,7 @@ public partial class SettingsWindow : Window
         {
             _downloadCts = null;
             cts.Dispose();
-            EmbeddedModelBox.IsEnabled = true;
+            ModelList.IsEnabled = true;
             DownloadBar.Visibility = Visibility.Collapsed;
             RefreshModelLabels();
             RefreshEmbeddedUi();
@@ -326,7 +357,8 @@ public partial class SettingsWindow : Window
 
     private void DeleteModel_Click(object sender, RoutedEventArgs e)
     {
-        var m = SelectedModel;
+        // 사용자 GGUF는 앱 소유가 아니므로 삭제 버튼 자체가 숨겨져 있다
+        if (SelectedModel is not { IsCustom: false } m) return;
         if (MessageBox.Show(UiText.Format("delete.confirm", m.DisplayName, m.SizeText),
                 "Deep Translation", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
             return;
@@ -345,6 +377,140 @@ public partial class SettingsWindow : Window
         }
         RefreshModelLabels();
         RefreshEmbeddedUi();
+    }
+
+    // ---- 내장 엔진: 엔진 바이너리·업데이트 ----
+
+    /// <summary>
+    /// 활성 백엔드의 설치·업데이트 상태에 맞춰 엔진 카드를 갱신한다.
+    /// 버튼 하나가 상태에 따라 [엔진 다운로드] → [업데이트 확인] → [bXXXX 설치] → (진행 중) [취소]로 바뀐다.
+    /// </summary>
+    private void RefreshEngineUi()
+    {
+        bool ollama = OllamaEngine.UseOllamaBackend;
+        bool installed = ollama ? OllamaEngine.IsBinaryInstalled : EmbeddedEngine.IsBinaryInstalled;
+        bool downloading = _engineDownloadCts != null;
+        bool busy = downloading || _checkingEngine;
+
+        BackendInfo.Text = ollama
+            ? UiText.Format("engine.auto.ollama", OllamaEngine.OllamaVersion)
+            : UiText.Format("engine.auto.llama", EmbeddedEngine.Tag);
+        // Ollama 경로는 컨텍스트가 모델 최초 등록 때 고정되므로 여기서 바꿀 수 없다
+        ContextRow.Visibility = ollama ? Visibility.Collapsed : Visibility.Visible;
+        RetryGpuButton.Visibility = !ollama && !busy && EmbeddedEngine.IsCpuFallback ? Visibility.Visible : Visibility.Collapsed;
+        ResetVersionButton.Visibility = !ollama && !busy && App.Settings.LlamaVersion.Length > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        EngineDownloadButton.IsEnabled = !_checkingEngine;
+        EngineDownloadButton.Content =
+            downloading ? UiText.Get("cancel")
+            : !installed ? UiText.Get("engine.binary.download")
+            : _pendingEngineTag != null ? UiText.Format("engine.update.install", _pendingEngineTag)
+            : UiText.Get("engine.update.check");
+        // Ollama는 버전 고정 — 설치된 뒤에는 할 일이 없다
+        EngineDownloadButton.Visibility = ollama && installed && !downloading ? Visibility.Collapsed : Visibility.Visible;
+        if (busy) return; // 진행 중 텍스트는 진행 콜백이 갱신한다
+
+        EngineStatus.Text =
+            !installed ? UiText.Get(ollama ? "engine.missing.ollama" : "engine.missing.llama")
+            : _pendingEngineTag != null ? UiText.Format("engine.update.available", _pendingEngineTag)
+            : UiText.Get("engine.installed") + (!ollama && EmbeddedEngine.IsCpuFallback ? " · " + UiText.Get("engine.cpu") : "");
+    }
+
+    private async void EngineDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engineDownloadCts != null) // 진행 중이면 버튼은 [취소]로 동작
+        {
+            _engineDownloadCts.Cancel();
+            return;
+        }
+
+        bool ollama = OllamaEngine.UseOllamaBackend;
+        bool installed = ollama ? OllamaEngine.IsBinaryInstalled : EmbeddedEngine.IsBinaryInstalled;
+        if (installed && _pendingEngineTag == null)
+        {
+            await CheckEngineUpdateAsync();
+            return;
+        }
+
+        string? newTag = installed ? _pendingEngineTag : null; // null = 현재 버전 설치
+        var cts = _engineDownloadCts = new CancellationTokenSource();
+        EngineDownloadBar.Visibility = Visibility.Visible;
+        EngineDownloadBar.Value = 0;
+        RefreshEngineUi();
+        string? message = null; // 결과 안내 (완료 후 상태 갱신에 덮이지 않게 마지막에 표시)
+        try
+        {
+            void OnProgress(long received, long total)
+            {
+                double pct = total > 0 ? received * 100.0 / total : 0;
+                EngineDownloadBar.Value = pct;
+                EngineStatus.Text = $"{received / 1048576.0:0} / {total / 1048576.0:0} MB ({pct:0}%)";
+            }
+            if (ollama)
+                await OllamaEngine.DownloadBinaryAsync(OnProgress, cts.Token);
+            else if (newTag != null)
+            {
+                await EmbeddedEngine.InstallVersionAsync(newTag, OnProgress, cts.Token);
+                _pendingEngineTag = null;
+                message = UiText.Format("engine.update.done", newTag);
+            }
+            else
+                await EmbeddedEngine.DownloadBinaryAsync(OnProgress, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            message = UiText.Get("download.cancelled");
+        }
+        catch (Exception ex)
+        {
+            message = UiText.Format("download.failed", ex.Message);
+        }
+        finally
+        {
+            _engineDownloadCts = null;
+            cts.Dispose();
+            EngineDownloadBar.Visibility = Visibility.Collapsed;
+            RefreshEngineUi();
+            if (message != null) EngineStatus.Text = message;
+        }
+    }
+
+    private async Task CheckEngineUpdateAsync()
+    {
+        _checkingEngine = true;
+        RefreshEngineUi();
+        EngineStatus.Text = UiText.Get("engine.update.checking");
+        string? message = null;
+        try
+        {
+            _pendingEngineTag = await EmbeddedEngine.CheckUpdateAsync(CancellationToken.None);
+            if (_pendingEngineTag == null) message = UiText.Format("engine.update.latest", EmbeddedEngine.Tag);
+        }
+        catch (Exception ex)
+        {
+            message = UiText.Format("engine.update.failed", ex.Message);
+        }
+        finally
+        {
+            _checkingEngine = false;
+            RefreshEngineUi();
+            if (message != null) EngineStatus.Text = message;
+        }
+    }
+
+    private void RetryGpu_Click(object sender, RoutedEventArgs e)
+    {
+        EmbeddedEngine.RetryGpu();
+        RefreshEngineUi();
+        EngineStatus.Text = UiText.Get("engine.gpu.retried");
+    }
+
+    private void ResetVersion_Click(object sender, RoutedEventArgs e)
+    {
+        EmbeddedEngine.ResetToDefaultVersion();
+        _pendingEngineTag = null;
+        RefreshEngineUi();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -399,31 +565,28 @@ public partial class SettingsWindow : Window
         if (error != null)
         {
             HotkeyHint.Text = error;
-            HotkeyHint.Foreground = Brushes.Red;
+            SetTone(HotkeyHint, "ErrorBrush");
             return;
         }
 
-        HotkeyHint.Foreground = Brushes.Gray;
+        SetTone(HotkeyHint, "SubTextBrush");
         bool doublePress = DoublePressCheck.IsChecked == true;
         HotkeyHint.Text = _gesture.IsCopyGesture
             ? UiText.Get("hotkey.copy")
             : UiText.Format(doublePress ? "hotkey.double.desc" : "hotkey.single.desc", _gesture);
     }
 
-    private async void Test_Click(object sender, RoutedEventArgs e) => await RefreshModelsAsync(silent: false);
-
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshModelsAsync(silent: false);
-
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var s = App.Settings;
         s.EngineMode = LmStudioRadio.IsChecked == true ? "LmStudio" : "Embedded";
-        s.EmbeddedModelId = SelectedModel.Id;
+        s.EmbeddedModelId = IsCustomSelected ? ModelCatalog.CustomId : SelectedModel!.Id;
+        s.CustomModelPath = _customPath;
+        s.ContextSize = ContextValues[Math.Max(0, ContextBox.SelectedIndex)];
         s.IdleUnloadMinutes = IdleMinuteValues[Math.Max(0, IdleUnloadBox.SelectedIndex)];
         s.ServerUrl = LmStudioClient.NormalizeBaseUrl(ServerBox.Text);
         s.ApiKey = ApiKeyBox.Text.Trim();
-        string typedModel = ModelBox.Text.Trim();
-        s.Model = typedModel.Length == 0 || typedModel == AutoModel ? "" : typedModel;
+        s.Model = SelectedServerModel;
         s.TargetLanguage = LanguageMaps.TargetChoices[Math.Max(0, TargetBox.SelectedIndex)];
         s.KoreanSourceTarget = LanguageMaps.KoreanSourceChoices[Math.Max(0, KoreanSourceBox.SelectedIndex)];
         s.Glossary = GlossaryBox.Text;
@@ -439,10 +602,12 @@ public partial class SettingsWindow : Window
 
         App.Instance.ApplySettings();
 
-        // 미다운로드 모델로 저장하는 것은 허용하되 안내한다
-        if (s.EngineMode == "Embedded" && !SelectedModel.IsDownloaded)
+        // 준비되지 않은 모델로 저장하는 것은 허용하되 안내한다
+        if (s.EngineMode == "Embedded" && SelectedModel is not { IsDownloaded: true })
         {
-            MessageBox.Show(UiText.Format("save.nomodel", SelectedModel.DisplayName),
+            MessageBox.Show(IsCustomSelected
+                    ? UiText.Get("save.nocustom")
+                    : UiText.Format("save.nomodel", SelectedModel!.DisplayName),
                 "Deep Translation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         Close();

@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using DeepTranslation.Models;
 using Microsoft.Win32;
@@ -12,24 +14,42 @@ namespace DeepTranslation.Services;
 /// </summary>
 public static class ThemeManager
 {
-    // (리소스 키, 다크 색, 라이트 색) — App.xaml에 정의된 팔레트 브러시 전체
+    // (리소스 키, 다크 색, 라이트 색) — App.xaml에 정의된 팔레트 브러시 전체.
+    // Toss 계열 회색·파랑 팔레트. 흰 글자·작은 강조 글자가 WCAG AA(4.5:1)를 넘도록 파랑을 한 단계 어둡게 잡았다.
     private static readonly (string Key, Color Dark, Color Light)[] Palette =
     {
-        ("BgBrush",              C("#1E1F26"),   C("#F4F5F8")),
-        ("PanelBrush",           C("#262833"),   C("#FFFFFF")),
-        ("LineBrush",            C("#3A3D4A"),   C("#D8DAE2")),
-        ("TextBrush",            C("#ECECF1"),   C("#1B1D23")),
-        ("SubTextBrush",         C("#9AA0AE"),   C("#6B7180")),
-        ("AccentBrush",          C("#5B8CFF"),   C("#3D6FE8")),
-        ("AccentHoverBrush",     C("#6F9AFF"),   C("#2E5FD6")),
-        ("ErrorBrush",           C("#FF7B7B"),   C("#D93034")),
-        ("HoverOverlayBrush",    C("#33FFFFFF"), C("#14000000")),
-        ("AccentSoftBrush",      C("#405B8CFF"), C("#2E3D6FE8")),
-        ("AccentHighlightBrush", C("#335B8CFF"), C("#1F3D6FE8")),
-        ("AccentSelectedBrush",  C("#505B8CFF"), C("#333D6FE8")),
+        ("BgBrush",              C("#17171C"),   C("#F2F4F6")),
+        ("PanelBrush",           C("#202027"),   C("#FFFFFF")),
+        ("LineBrush",            C("#33333D"),   C("#E5E8EB")),
+        ("FieldBrush",           C("#2C2C35"),   C("#F2F4F6")),
+        ("TextBrush",            C("#ECECEF"),   C("#191F28")),
+        ("SubTextBrush",         C("#9E9EA7"),   C("#636E7B")),
+        ("AccentBrush",          C("#1E6EE8"),   C("#1E6EE8")),
+        ("AccentHoverBrush",     C("#3A82F0"),   C("#1A5FD0")),
+        ("AccentTextBrush",      C("#6EA8FE"),   C("#1B64DA")),
+        ("ErrorBrush",           C("#FF6B76"),   C("#D9363E")),
+        ("SuccessBrush",         C("#2BC48A"),   C("#087F4F")),
+        ("HoverOverlayBrush",    C("#14FFFFFF"), C("#0D000000")),
+        ("AccentSoftBrush",      C("#1A3157"),   C("#E8F3FF")),
+        ("AccentHighlightBrush", C("#2C2C35"),   C("#F2F4F6")),
+        ("AccentSelectedBrush",  C("#1A3157"),   C("#E8F3FF")),
     };
 
     private static bool _subscribed;
+
+    /// <summary>마지막으로 적용된 테마가 다크인지 — 창 제목 표시줄 색 맞춤에 쓴다.</summary>
+    public static bool IsDark { get; private set; } = true;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    /// <summary>표준 제목 표시줄을 현재 테마(라이트/다크)에 맞춘다. SourceInitialized 이후 호출. 미지원 OS에서는 무시된다.</summary>
+    public static void ApplyTitleBar(Window window)
+    {
+        int dark = IsDark ? 1 : 0;
+        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+ / 11)
+        DwmSetWindowAttribute(new WindowInteropHelper(window).Handle, 20, ref dark, sizeof(int));
+    }
 
     private static Color C(string hex) => (Color)ColorConverter.ConvertFromString(hex);
 
@@ -42,6 +62,7 @@ public static class ThemeManager
             "Light" => false,
             _ => !IsSystemLightTheme(), // "System"
         };
+        IsDark = dark;
 
         var resources = Application.Current.Resources;
         foreach (var (key, darkColor, lightColor) in Palette)

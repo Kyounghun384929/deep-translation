@@ -31,11 +31,14 @@ public sealed class TranslationService
             : "Korean";
         // 한국어 원문은 ResolveTarget이 대상을 확정했으므로 모델에 "이미 대상 언어면 폴백" 예외 규칙을 주지 않는다
         bool allowFallback = !LanguageMaps.IsMostlyKorean(text);
+        // 내장 모델 식별자 — 사용자 GGUF는 경로별로 Id가 달라 캐시·엔진 기동이 섞이지 않는다
+        var embeddedModel = embedded ? ModelCatalog.Resolve(settings) : null;
+        string embeddedId = embeddedModel?.Id ?? settings.EmbeddedModelId;
         // 내장 모드는 서버 URL·LM Studio 모델명이 무관하므로 엔진 식별자로 캐시 키를 만든다
         // (백엔드도 반영 — 같은 GGUF라도 llama.cpp와 Ollama 결과를 분리한다)
         string cacheKey = LlmGuard.MakeKey(
             embedded ? (useOllama ? "embedded-ollama" : "embedded-llamacpp") : settings.ServerUrl,
-            embedded ? settings.EmbeddedModelId : settings.Model,
+            embedded ? embeddedId : settings.Model,
             targetEnglish, fallbackEnglish, settings.Glossary, settings.Temperature, text);
 
         if (!bypassCache && LlmGuard.TryGet(cacheKey, out var cached))
@@ -64,12 +67,12 @@ public sealed class TranslationService
                 {
                     // Ollama는 "dt-"를 붙인 모델명으로 기존 GGUF를 재활용해 등록·기동한다
                     serverUrl = await OllamaEngine.EnsureRunningAsync(settings, onStatus, ct);
-                    candidates = new List<string> { "dt-" + settings.EmbeddedModelId };
+                    candidates = new List<string> { OllamaEngine.OllamaModelName(embeddedId) };
                 }
                 else
                 {
                     serverUrl = await EmbeddedEngine.EnsureRunningAsync(settings, onStatus, ct);
-                    candidates = new List<string> { settings.EmbeddedModelId };
+                    candidates = new List<string> { embeddedId };
                 }
                 onStatus?.Invoke("번역 중…"); // 로딩 상태 표시를 되돌린다
             }
@@ -89,6 +92,10 @@ public sealed class TranslationService
             }
 
             string systemPrompt = LanguageMaps.BuildSystemPrompt(targetEnglish, fallbackEnglish, settings.Glossary, allowFallback);
+            // 내장 엔진 출력 상한: 작은 모델이 같은 문장을 반복하면 컨텍스트가 찰 때까지(수 분) 게이트를 붙잡는다.
+            // 번역문은 원문 추정 토큰의 약 2.5배 이내 — 여유를 두고 4배+256으로 끊는다.
+            // 사용자 GGUF·외부 서버는 thinking 모델일 수 있어(생각 토큰도 상한에 포함) 두지 않는다.
+            int? maxTokens = embeddedModel is { IsCustom: false } ? LanguageMaps.EstimateTokens(text) * 4 + 256 : null;
             // Hy-MT2는 시스템 프롬프트의 대상 언어 지시를 무시하고 원문 언어로 되받아쓴다(공식 문서: 기본 system_prompt 없음,
             // 지시는 사용자 턴). 공식 "Default Translation" 지시문을 원문 앞에 붙여야 대상 언어를 따른다.
             LmStudioException? lastError = null;
@@ -118,7 +125,7 @@ public sealed class TranslationService
                             lastEmit = now;
                             string body = marker.Process(ThinkFilter.Strip(raw.ToString()));
                             if (body.Length > 0) onText(body);
-                        }, ct, apiKey);
+                        }, ct, apiKey, maxTokens);
 
                     if (raw.Length == 0)
                     {

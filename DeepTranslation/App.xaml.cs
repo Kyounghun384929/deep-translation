@@ -490,6 +490,22 @@ public partial class App : Application
                 Out($"tokens: ko5={ko} en12={en} limit8192={limit} (5 / 3 / 3076이어야 정상)");
             }
 
+            // 외부 서버 주소 정규화: LM Studio가 안내하는 ".../v1"을 붙여 넣어도 /v1/v1이 되지 않아야 한다
+            Out($"url: '{LmStudioClient.NormalizeBaseUrl("localhost:1234/v1/")}' '{LmStudioClient.NormalizeBaseUrl("https://x.io/api")}'" +
+                " (http://localhost:1234 / https://x.io/api여야 정상)");
+
+            // 사용자 GGUF: Id에 파일 이름이 남고(Hy-MT2 판별), 경로가 다르면 Id도 달라야 한다(엔진 재기동·Ollama 재등록)
+            {
+                var a = ModelCatalog.Custom(@"C:\models\Hy-MT2 7B.Q4_K_M.gguf");
+                var b = ModelCatalog.Custom(@"D:\other\Hy-MT2 7B.Q4_K_M.gguf");
+                bool named = a?.Id.StartsWith("custom-hy-mt2-7b.q4-k-m-") == true;
+                Out($"custom-model: id={a?.Id} named={named} distinct={a?.Id != b?.Id} empty-null={ModelCatalog.Custom("") == null} (전부 True여야 정상)");
+            }
+
+            // llama.cpp 태그 비교 (업데이트 판정)
+            Out($"llama-tag: newer={EmbeddedEngine.TagNumber("b10123") > EmbeddedEngine.TagNumber("b10066")} " +
+                $"bad={EmbeddedEngine.TagNumber("latest")} current={EmbeddedEngine.Tag} (True / 0 / bNNNN이어야 정상)");
+
             // --model <id>: 설정 파일을 건드리지 않고 내장 모델을 바꿔 검증한다 (모델별 회귀 확인용)
             // --target <표시명>: 대상 언어를 바꿔 검증한다 (예: --target 영어)
             int targetIdx = Array.IndexOf(args, "--target");

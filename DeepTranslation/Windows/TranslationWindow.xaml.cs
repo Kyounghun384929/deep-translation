@@ -131,7 +131,7 @@ public partial class TranslationWindow : Window
         string text = SourceBox.Text.Trim();
         string signature = string.Join((char)31,
             App.Settings.ServerUrl, App.Settings.Model, App.Settings.TargetLanguage,
-            App.Settings.EngineMode, App.Settings.EmbeddedModelId,
+            App.Settings.EngineMode, App.Settings.EmbeddedModelId, App.Settings.CustomModelPath,
             App.Settings.Glossary, App.Settings.Temperature, text);
 
         // 같은 내용의 요청이 이미 진행 중이면 재시작하지 않는다 (불필요한 LLM 재호출 방지)
@@ -186,7 +186,10 @@ public partial class TranslationWindow : Window
                 });
 
             if (cts.IsCancellationRequested) return;
-            ModelLabel.Text = result.Model;
+            // 내장 모델은 내부 Id(사용자 GGUF는 해시 포함) 대신 표시 이름을 보여준다
+            ModelLabel.Text = App.Settings.EngineMode == "Embedded"
+                ? ModelCatalog.Resolve(App.Settings)?.DisplayName ?? result.Model
+                : result.Model;
             ShowEffectiveTarget(result.TargetDisplay);
             // 한국어 원문이라 보조 언어로 번역된 경우 상태 표시줄에 알려준다
             string fallbackNote = result.TargetDisplay != App.Settings.TargetLanguage
