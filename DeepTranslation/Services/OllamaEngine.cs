@@ -19,7 +19,7 @@ namespace DeepTranslation.Services;
 public static class OllamaEngine
 {
     // Ollama 릴리스 버전 고정 — 자산 URL·설치 폴더 이름에 함께 쓰인다
-    private const string OllamaVersion = "v0.32.1";
+    public const string OllamaVersion = "v0.32.1";
     private const string OllamaZipUrl =
         $"https://github.com/ollama/ollama/releases/download/{OllamaVersion}/ollama-windows-amd64.zip";
 
@@ -46,7 +46,7 @@ public static class OllamaEngine
     private static string LogPath => Path.Combine(AppDataDir, "ollama.log");
 
     /// <summary>Ollama 모델명은 카탈로그 Id 앞에 "dt-"를 붙인다 (사용자의 다른 모델과 충돌 방지).</summary>
-    private static string OllamaModelName(string catalogId) => "dt-" + catalogId;
+    public static string OllamaModelName(string catalogId) => "dt-" + catalogId;
 
     /// <summary>현재 실행 중인 엔진의 모델 Id. 실행 중이 아니면 빈 문자열.</summary>
     public static string RunningModelId
@@ -67,8 +67,7 @@ public static class OllamaEngine
     /// </summary>
     public static async Task<string> EnsureRunningAsync(AppSettings settings, Action<string>? onStatus, CancellationToken ct)
     {
-        var model = ModelCatalog.Find(settings.EmbeddedModelId)
-            ?? throw new LmStudioException("알 수 없는 내장 모델입니다: " + settings.EmbeddedModelId);
+        var model = EmbeddedEngine.ResolveModel(settings);
 
         lock (Sync)
         {
@@ -79,11 +78,6 @@ public static class OllamaEngine
                 return _baseUrl;
             }
         }
-
-        if (!model.IsDownloaded)
-            throw new LmStudioException(
-                "모델이 아직 다운로드되지 않았습니다.\n" +
-                $"설정 → 번역 엔진에서 '{model.DisplayName}' 모델을 다운로드하세요.");
 
         Stop(); // 다른 모델이 떠 있으면 내리고 새로 기동
 
@@ -134,7 +128,7 @@ public static class OllamaEngine
         {
             if (_proc == null) return;
             _idleMinutes = settings.IdleUnloadMinutes;
-            if (settings.EngineMode != "Embedded" || settings.EmbeddedModelId != _modelId)
+            if (settings.EngineMode != "Embedded" || ModelCatalog.Resolve(settings)?.Id != _modelId)
                 StopLocked();
             else
                 ResetIdleTimerLocked(); // 유휴 시간 변경 즉시 반영

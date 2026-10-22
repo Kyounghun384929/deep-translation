@@ -49,11 +49,11 @@ counting the model file plus the default 8K context:
 
 ## Getting started
 
-1. Right-click the tray icon → **Settings** → **Download** a model (default: Qwen3.5 4B, 2.7 GB)
+1. Right-click the tray icon → **Settings** → **Engine** → pick a model card → **Download** (default: Qwen3.5 4B, 2.7 GB)
 2. Select some text and press **Ctrl+C, C**
 
 The translation engine (~33 MB) is downloaded automatically on the first translation.
-If a GPU is not available, it falls back to CPU.
+If a GPU is not available, it falls back to CPU. After a GPU driver update, use **Retry GPU** in Settings → Engine.
 
 ## Models
 
@@ -70,6 +70,18 @@ All models run as 4-bit GGUF (Q4_K_M) files. Pick one in Settings → Engine.
 
 License terms are also shown in the Settings window. Check them before commercial use.
 
+### Use your own GGUF
+
+Already downloaded a model in LM Studio? Pick **My GGUF file** in Settings → Engine and choose the `.gguf`
+file. The LM Studio models folder (`%USERPROFILE%\.lmstudio\models`) opens first. The file runs as is,
+with no copy and no extra download. The app never deletes it.
+
+### Engine version
+
+The built-in engine is pinned to a tested llama.cpp build. **Check for update** in Settings → Engine
+installs the newest Windows Vulkan build from GitHub. **Revert to default version** goes back.
+The context length (4K–32K) is also set there.
+
 ## Usage
 
 | Action | How |
@@ -85,11 +97,12 @@ License terms are also shown in the Settings window. Check them before commercia
 
 ## External server
 
-Switch the engine to **External server (OpenAI-compatible)** in Settings to use your own server.
+Switch the engine to **External server** in Settings to use your own server.
 
-Only [LM Studio](https://lmstudio.ai/) has been tested: start its server from the Developer tab and
-enter `http://localhost:1234`. Other OpenAI-compatible servers (Ollama, llama.cpp, vLLM) may work
-but are unverified. If the server requires authentication, enter the key in the **API key** field.
+Only [LM Studio](https://lmstudio.ai/) has been tested: start its server from the Developer tab, then
+click the **LM Studio** preset or **Find automatically**. A pasted address ending in `/v1` also works.
+Other OpenAI-compatible servers (Ollama, llama.cpp, vLLM) have presets too but are unverified.
+If the server requires authentication, enter the key in the **API key** field.
 
 ## Known issues
 

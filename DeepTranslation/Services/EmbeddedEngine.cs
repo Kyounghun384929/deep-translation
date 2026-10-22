@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Text.Json.Nodes;
 using DeepTranslation.Models;
 using Microsoft.Win32;
 
@@ -17,18 +18,28 @@ namespace DeepTranslation.Services;
 /// </summary>
 public static class EmbeddedEngine
 {
-    // llama.cpp 릴리스 태그 고정 — zip URL·폴더 이름에 함께 쓰인다
-    private const string LlamaTag = "b10066";
-    private const string VulkanZipUrl =
-        $"https://github.com/ggml-org/llama.cpp/releases/download/{LlamaTag}/llama-{LlamaTag}-bin-win-vulkan-x64.zip";
-    private const string CpuZipUrl =
-        $"https://github.com/ggml-org/llama.cpp/releases/download/{LlamaTag}/llama-{LlamaTag}-bin-win-cpu-x64.zip";
+    // 앱에 고정된 llama.cpp 릴리스 태그 — 사용자가 업데이트하면 settings.LlamaVersion이 우선한다
+    public const string DefaultTag = "b10066";
+    private const string LatestReleaseApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
+
+    /// <summary>현재 사용할 llama.cpp 태그 — zip URL·설치 폴더 이름에 함께 쓰인다.</summary>
+    public static string Tag => App.Settings.LlamaVersion is { Length: > 0 } v ? v : DefaultTag;
+
+    private static string ZipName(string tag, bool cpu) => $"llama-{tag}-bin-win-{(cpu ? "cpu" : "vulkan")}-x64.zip";
+    private static string ZipUrl(string tag, bool cpu) =>
+        $"https://github.com/ggml-org/llama.cpp/releases/download/{tag}/{ZipName(tag, cpu)}";
 
     // 디스크에서 첫 로드는 느릴 수 있어 넉넉하게 잡는다
     private const int HealthTimeoutSeconds = 180;
 
     private static readonly object Sync = new();
     private static readonly HttpClient HealthHttp = new() { Timeout = TimeSpan.FromSeconds(2) };
+    // GitHub API는 User-Agent가 없으면 403을 반환한다
+    private static readonly HttpClient ApiHttp = new()
+    {
+        Timeout = TimeSpan.FromSeconds(10),
+        DefaultRequestHeaders = { { "User-Agent", "DeepTranslation" } },
+    };
 
     private static Process? _proc;
     private static StreamWriter? _log;
@@ -90,8 +101,7 @@ public static class EmbeddedEngine
     /// </summary>
     public static async Task<string> EnsureRunningAsync(AppSettings settings, Action<string>? onStatus, CancellationToken ct)
     {
-        var model = ModelCatalog.Find(settings.EmbeddedModelId)
-            ?? throw new LmStudioException("알 수 없는 내장 모델입니다: " + settings.EmbeddedModelId);
+        var model = ResolveModel(settings);
 
         lock (Sync)
         {
@@ -102,11 +112,6 @@ public static class EmbeddedEngine
                 return _baseUrl;
             }
         }
-
-        if (!model.IsDownloaded)
-            throw new LmStudioException(
-                "모델이 아직 다운로드되지 않았습니다.\n" +
-                $"설정 → 번역 엔진에서 '{model.DisplayName}' 모델을 다운로드하세요.");
 
         Stop(); // 다른 모델이 떠 있으면 내리고 새로 기동
 
@@ -136,6 +141,21 @@ public static class EmbeddedEngine
         throw new LmStudioException("내장 번역 엔진을 시작하지 못했습니다.\n\n" + sacHint + TailLog());
     }
 
+    /// <summary>설정의 내장 모델을 찾고 파일이 준비됐는지 확인한다 (OllamaEngine과 공용).</summary>
+    internal static ModelCatalog.ModelInfo ResolveModel(AppSettings settings)
+    {
+        var model = ModelCatalog.Resolve(settings) ?? throw new LmStudioException(
+            settings.EmbeddedModelId == ModelCatalog.CustomId
+                ? "사용할 GGUF 파일이 지정되지 않았습니다.\n설정 → 번역 엔진에서 파일을 선택하세요."
+                : "알 수 없는 내장 모델입니다: " + settings.EmbeddedModelId);
+        if (!model.IsDownloaded)
+            throw new LmStudioException(model.IsCustom
+                ? $"GGUF 파일을 찾을 수 없습니다:\n{model.FilePath}"
+                : "모델이 아직 다운로드되지 않았습니다.\n" +
+                  $"설정 → 번역 엔진에서 '{model.DisplayName}' 모델을 다운로드하세요.");
+        return model;
+    }
+
     /// <summary>번역 활동이 있었음을 알린다 — 유휴 언로드 타이머를 리셋한다.</summary>
     public static void NotifyActivity()
     {
@@ -152,7 +172,7 @@ public static class EmbeddedEngine
         {
             if (_proc == null) return;
             _idleMinutes = settings.IdleUnloadMinutes;
-            if (settings.EngineMode != "Embedded" || settings.EmbeddedModelId != _modelId || settings.ContextSize != _ctxSize)
+            if (settings.EngineMode != "Embedded" || ModelCatalog.Resolve(settings)?.Id != _modelId || settings.ContextSize != _ctxSize)
                 StopLocked();
             else
                 ResetIdleTimerLocked(); // 유휴 시간 변경 즉시 반영
@@ -187,11 +207,14 @@ public static class EmbeddedEngine
         Action<string>? onStatus, CancellationToken ct)
     {
         int port = GetFreePort();
+        // -np 1: 사용자 1명·요청 직렬화(LlmGuard) — 슬롯 하나가 컨텍스트 전체를 쓰고 같은 시스템 프롬프트 KV를 재사용한다
+        // --cache-ram 0: 기본값은 지난 프롬프트를 RAM에 최대 8GB까지 쌓는다 — 상주 앱에는 낭비
         string args = $"-m \"{model.FilePath}\" --host 127.0.0.1 --port {port} " +
-                      $"-ngl {ngl} --ctx-size {ctxSize} -a {model.Id} --no-webui";
+                      $"-ngl {ngl} --ctx-size {ctxSize} -np 1 --cache-ram 0 -a {model.Id} --no-webui";
         // qwen3.5는 thinking이 기본 켜져 컨텍스트를 소진할 때까지 생각만 한다 — 템플릿에서 꺼야 즉답한다
         // (--reasoning-budget 0만으로는 안 멈춤, llama-server는 chat-template-kwargs가 정상 동작)
-        if (model.Id.StartsWith("qwen3.5"))
+        // 사용자 GGUF도 잡히도록 파일 이름으로 판별한다
+        if (Path.GetFileName(model.FilePath).Contains("qwen3.5", StringComparison.OrdinalIgnoreCase))
             args += " --jinja --chat-template-kwargs \"{\\\"enable_thinking\\\":false}\"";
 
         var proc = new Process
@@ -286,7 +309,7 @@ public static class EmbeddedEngine
 
     // ---- 바이너리 준비 ----
 
-    private static string BinDir(bool cpu) => Path.Combine(LlamaDir, LlamaTag, cpu ? "cpu" : "vulkan");
+    private static string BinDir(bool cpu, string? tag = null) => Path.Combine(LlamaDir, tag ?? Tag, cpu ? "cpu" : "vulkan");
 
     /// <summary>엔진 바이너리 설치 여부 (Vulkan 빌드 기준 — CPU 폴백 빌드는 필요 시 자동 다운로드).</summary>
     public static bool IsBinaryInstalled => FindServerExe(BinDir(cpu: false)) != null;
@@ -302,12 +325,14 @@ public static class EmbeddedEngine
     }
 
     // 지정 빌드의 zip을 내려받아 풀고 llama-server.exe 경로를 반환한다
-    private static async Task<string> DownloadBuildAsync(bool cpu, Action<long, long>? onProgress, CancellationToken ct)
+    private static async Task<string> DownloadBuildAsync(bool cpu, Action<long, long>? onProgress, CancellationToken ct,
+        string? tag = null)
     {
-        string dir = BinDir(cpu);
+        tag ??= Tag;
+        string dir = BinDir(cpu, tag);
         Directory.CreateDirectory(dir);
         string zipPath = dir + ".zip";
-        await ModelDownloader.DownloadAsync(cpu ? CpuZipUrl : VulkanZipUrl, zipPath, 0, onProgress, ct);
+        await ModelDownloader.DownloadAsync(ZipUrl(tag, cpu), zipPath, 0, onProgress, ct);
 
         // zip 루트 구조가 릴리스마다 다를 수 있어 해제 후 exe를 탐색해 경로를 확정한다.
         // 추출은 CPU/IO 작업 — UI 스레드에서 호출돼도 창이 멎지 않게 스레드 풀에서 수행한다.
@@ -333,6 +358,58 @@ public static class EmbeddedEngine
     {
         if (!Directory.Exists(dir)) return null;
         return Directory.GetFiles(dir, "llama-server.exe", SearchOption.AllDirectories).FirstOrDefault();
+    }
+
+    // ---- 엔진 업데이트 ----
+
+    /// <summary>GPU 기동에 실패해 CPU 빌드로 고정된 상태인지 (use-cpu.txt 마커).</summary>
+    public static bool IsCpuFallback => File.Exists(CpuMarkerPath);
+
+    /// <summary>CPU 고정을 풀어 다음 기동 때 GPU(Vulkan)부터 다시 시도한다 (드라이버 업데이트 후 등).</summary>
+    public static void RetryGpu()
+    {
+        Stop();
+        try { File.Delete(CpuMarkerPath); } catch { }
+    }
+
+    internal static int TagNumber(string tag) => int.TryParse(tag.TrimStart('b'), out int n) ? n : 0;
+
+    /// <summary>
+    /// GitHub의 최신 llama.cpp 릴리스를 확인한다. 현재보다 새롭고 Windows Vulkan 빌드가 올라와 있으면 그 태그, 아니면 null.
+    /// 네트워크 오류는 호출부로 전파한다.
+    /// </summary>
+    public static async Task<string?> CheckUpdateAsync(CancellationToken ct)
+    {
+        var release = JsonNode.Parse(await ApiHttp.GetStringAsync(LatestReleaseApi, ct));
+        string tag = release?["tag_name"]?.GetValue<string>() ?? "";
+        if (TagNumber(tag) <= TagNumber(Tag)) return null;
+        bool hasBuild = release?["assets"] is JsonArray assets &&
+                        assets.Any(a => a?["name"]?.GetValue<string>() == ZipName(tag, cpu: false));
+        return hasBuild ? tag : null;
+    }
+
+    /// <summary>
+    /// 지정 태그의 Vulkan 빌드를 받아 설치하고 즉시 전환한다. 실행 중 엔진은 내리고, 이전 버전 폴더는 지운다.
+    /// 새 버전이면 GPU가 다시 될 수 있으므로 CPU 고정도 해제한다.
+    /// </summary>
+    public static async Task InstallVersionAsync(string tag, Action<long, long>? onProgress, CancellationToken ct)
+    {
+        await DownloadBuildAsync(cpu: false, onProgress, ct, tag);
+        Stop();
+        App.Settings.LlamaVersion = tag == DefaultTag ? "" : tag;
+        App.Settings.Save();
+        try { File.Delete(CpuMarkerPath); } catch { }
+        foreach (var dir in Directory.GetDirectories(LlamaDir))
+            if (!string.Equals(Path.GetFileName(dir), tag, StringComparison.OrdinalIgnoreCase))
+                try { Directory.Delete(dir, recursive: true); } catch { } // 정리 실패는 디스크만 덜 회수된다
+    }
+
+    /// <summary>앱 기본 버전으로 되돌린다. 기본 빌드가 없으면 다음 번역 때(또는 설정 창에서) 다시 받는다.</summary>
+    public static void ResetToDefaultVersion()
+    {
+        Stop();
+        App.Settings.LlamaVersion = "";
+        App.Settings.Save();
     }
 
     // ---- 유틸 ----

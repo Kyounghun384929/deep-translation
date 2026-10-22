@@ -6,14 +6,20 @@ namespace DeepTranslation.Models;
 
 public class AppSettings
 {
-    /// <summary>번역 엔진 모드: "Embedded"(내장 llama.cpp) 또는 "LmStudio".</summary>
     /// <summary>설정 창 언어: "en" | "ko".</summary>
     public string UiLanguage { get; set; } = "en";
 
+    /// <summary>번역 엔진 모드: "Embedded"(내장 llama.cpp) 또는 "LmStudio"(외부 OpenAI 호환 서버).</summary>
     public string EngineMode { get; set; } = "Embedded";
 
-    /// <summary>내장 엔진에서 사용할 모델의 카탈로그 Id (ModelCatalog 참조).</summary>
+    /// <summary>내장 엔진에서 사용할 모델의 카탈로그 Id (ModelCatalog 참조). "custom"이면 CustomModelPath 사용.</summary>
     public string EmbeddedModelId { get; set; } = "qwen3.5-4b";
+
+    /// <summary>내장 엔진으로 직접 실행할 GGUF 파일 경로 (LM Studio 등에서 받은 모델 재사용).</summary>
+    public string CustomModelPath { get; set; } = "";
+
+    /// <summary>설치한 llama.cpp 릴리스 태그 (예: "b10123"). 비어 있으면 앱에 고정된 기본 버전.</summary>
+    public string LlamaVersion { get; set; } = "";
 
     /// <summary>내장 엔진 유휴 언로드 대기 시간(분). 0이면 언로드하지 않음.</summary>
     public int IdleUnloadMinutes { get; set; } = 5;

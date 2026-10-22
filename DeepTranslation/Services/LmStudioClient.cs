@@ -30,7 +30,10 @@ public sealed class LmStudioClient
         if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
             !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             url = "http://" + url;
-        return url.TrimEnd('/');
+        url = url.TrimEnd('/');
+        // LM Studio 등은 "…/v1"을 기본 주소로 안내한다 — 요청 경로에 /v1을 직접 붙이므로 중복을 없앤다
+        if (url.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)) url = url[..^3];
+        return url;
     }
 
     /// <summary>
@@ -144,7 +147,7 @@ public sealed class LmStudioClient
 
     /// <summary>스트리밍 채팅 완성 요청. 토큰이 도착할 때마다 onDelta를 호출한다.</summary>
     public async Task StreamChatAsync(string baseUrl, string model, string systemPrompt, string userText,
-        double temperature, Action<string> onDelta, CancellationToken ct, string? apiKey = null)
+        double temperature, Action<string> onDelta, CancellationToken ct, string? apiKey = null, int? maxTokens = null)
     {
         string root = NormalizeBaseUrl(baseUrl);
         var messages = new JsonArray();
@@ -157,6 +160,7 @@ public sealed class LmStudioClient
             ["temperature"] = temperature,
             ["stream"] = true
         };
+        if (maxTokens is { } max) payload["max_tokens"] = max;
 
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{root}/v1/chat/completions")
         {
@@ -236,6 +240,6 @@ public sealed class LmStudioClient
         $"번역 서버({baseUrl})에 연결할 수 없습니다.\n\n" +
         "1. 서버(LM Studio·Ollama 등)가 실행 중인지 확인하세요.\n" +
         "2. 설정의 서버 주소를 확인하세요.\n" +
-        "   (LM Studio: http://localhost:1234 · Ollama: http://localhost:11434/v1)\n" +
+        "   (LM Studio: http://localhost:1234 · Ollama: http://localhost:11434)\n" +
         "3. 채팅용 모델이 준비되어 있는지 확인하세요.";
 }
