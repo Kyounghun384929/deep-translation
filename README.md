@@ -116,3 +116,7 @@ If the server requires authentication, enter the key in the **API key** field.
 
 Settings file: `%APPDATA%\DeepTranslation\settings.json`
 Model files: `%LOCALAPPDATA%\DeepTranslation\models`
+
+## Build
+
+Use .NET 8 SDK and Inno Setup. From the repository root, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer`. Outputs are written to `dist/`. The SDK is selected by `global.json`.

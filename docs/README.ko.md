@@ -113,3 +113,7 @@ GitHub의 최신 Windows Vulkan 빌드를 설치합니다. **기본 버전으로
 
 설정 파일: `%APPDATA%\DeepTranslation\settings.json`
 모델 파일: `%LOCALAPPDATA%\DeepTranslation\models`
+
+## 빌드
+
+.NET 8 SDK와 Inno Setup을 사용합니다. 저장소 루트에서 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer`로 빌드합니다. 결과는 `dist/`에 생성됩니다. `global.json`으로 .NET 8 SDK를 선택합니다.
