@@ -147,45 +147,43 @@ public static class LanguageMaps
     }
 
     /// <summary>
-    /// Hy-MT2용 사용자 턴 지시문 (공식 "Default Translation" 문구). 시스템 프롬프트는 쓰지 않는다.
-    /// 용어집이 있으면 지시문 뒤에 붙인다.
+    /// Hy-MT2용 사용자 턴 지시문 (공식 템플릿). 시스템 프롬프트는 쓰지 않는다.
+    /// 용어집이 없으면 "Default Translation", 있으면 "Terminology" 템플릿 (Hy-MT2 모델 카드 문구 그대로).
     /// </summary>
     public static string BuildHyMtPrompt(string targetEnglish, string glossary, string text)
     {
-        var sb = new System.Text.StringBuilder();
-        sb.Append("Translate the following text into ").Append(targetEnglish)
-          .Append(". Note that you should only output the translated result without any additional explanation");
-        string glossaryLines = BuildGlossaryLines(glossary);
-        if (glossaryLines.Length > 0)
-            sb.Append(". Use these translations for the listed terms:\n").Append(glossaryLines);
-        sb.Append(":\n\n").Append(text);
-        return sb.ToString();
+        var terms = GlossaryEntries(glossary).Select(e => $"{e.Src} translates to {e.Dst}").ToList();
+        if (terms.Count == 0)
+            return $"Translate the following text into {targetEnglish}. " +
+                   $"Note that you should only output the translated result without any additional explanation:\n\n{text}";
+        return "Reference the following translations:\n" + string.Join("\n", terms) +
+               $"\n\nTranslate the following text into {targetEnglish}. " +
+               $"Note that you must ONLY output the translated result without any additional explanation:\n\n{text}";
     }
 
+    /// <summary>용어집 항목을 시스템 프롬프트용 줄로 변환한다. 항목이 없으면 빈 문자열.</summary>
+    private static string BuildGlossaryLines(string glossary) =>
+        string.Join("\n", GlossaryEntries(glossary).Select(e => $"- \"{e.Src}\" → \"{e.Dst}\""));
+
     /// <summary>
-    /// 용어집 텍스트에서 유효한 항목을 골라 프롬프트용 줄로 변환한다.
-    /// 각 줄은 "원어 = 번역어" 형식, '=' 기준 분리·양쪽 trim, 빈 줄/형식 오류 줄 무시, 최대 50줄.
-    /// 항목이 없으면 빈 문자열을 반환한다.
+    /// 용어집 텍스트에서 유효한 항목을 고른다.
+    /// 각 줄은 "원어 = 번역어" 형식, '=' 기준 분리·양쪽 trim, 빈 줄/형식 오류 줄 무시, 최대 50개.
     /// </summary>
-    private static string BuildGlossaryLines(string glossary)
+    private static IEnumerable<(string Src, string Dst)> GlossaryEntries(string glossary)
     {
-        if (string.IsNullOrWhiteSpace(glossary)) return "";
-        var sb = new System.Text.StringBuilder();
+        if (string.IsNullOrWhiteSpace(glossary)) yield break;
         int count = 0;
         foreach (var rawLine in glossary.Split('\n'))
         {
-            if (count >= 50) break;
+            if (count >= 50) yield break;
             string line = rawLine.Trim();
-            if (line.Length == 0) continue;
             int eq = line.IndexOf('=');
-            if (eq <= 0) continue; // '='가 없거나 왼쪽이 비어 있으면 형식 오류
+            if (eq <= 0) continue; // 빈 줄, '='가 없거나 왼쪽이 비어 있으면 형식 오류
             string src = line[..eq].Trim();
             string dst = line[(eq + 1)..].Trim();
             if (src.Length == 0 || dst.Length == 0) continue;
-            if (count > 0) sb.Append('\n');
-            sb.Append("- \"").Append(src).Append("\" → \"").Append(dst).Append('"');
             count++;
+            yield return (src, dst);
         }
-        return sb.ToString();
     }
 }

@@ -506,6 +506,19 @@ public partial class App : Application
             Out($"llama-tag: newer={EmbeddedEngine.TagNumber("b10123") > EmbeddedEngine.TagNumber("b10066")} " +
                 $"bad={EmbeddedEngine.TagNumber("latest")} current={EmbeddedEngine.Tag} (True / 0 / bNNNN이어야 정상)");
 
+            // 모델별 자동 설정: 내장 Id·Ollama "dt-"·사용자 GGUF·외부 서버 이름 모두 같은 프로필로 판별되어야 한다
+            {
+                string P(string m) => ModelProfile.For(m) is { } p
+                    ? $"{p.Temperature}/{p.TopK?.ToString() ?? "-"}{(p.UserTurnPrompt ? "/user" : "")}{(p.SystemPreamble.Length > 0 ? "/pre" : "")}"
+                    : "null";
+                Out($"profile: hy={P("dt-hy-mt2-7b")} qwen={P("qwen3.5-4b")} gemma={P("custom-gemma-4-e4b-it-q4-k-m-1a2b3c4d")} " +
+                    $"exaone={P("exaone-3.5-2.4b")} clova={P("hyperclovax-seed-1.5b")} " +
+                    "(0.7/20/user / 0.2/20 / 0.2/64 / 0/-/pre / null이어야 정상)");
+                string hyGloss = LanguageMaps.BuildHyMtPrompt("Korean", "LM Studio = LM Studio\nbad line", "Hello");
+                Out($"hymt-terms: {hyGloss.StartsWith("Reference the following translations:\nLM Studio translates to LM Studio\n\nTranslate")} " +
+                    $"plain={LanguageMaps.BuildHyMtPrompt("Korean", "", "Hello").StartsWith("Translate the following text into Korean.")} (True / True여야 정상)");
+            }
+
             // --model <id>: 설정 파일을 건드리지 않고 내장 모델을 바꿔 검증한다 (모델별 회귀 확인용)
             // --target <표시명>: 대상 언어를 바꿔 검증한다 (예: --target 영어)
             int targetIdx = Array.IndexOf(args, "--target");

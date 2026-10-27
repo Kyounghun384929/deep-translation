@@ -63,6 +63,11 @@ public static class ModelCatalog
             "Hy-MT2-7B-Q4_K_M.gguf",
             "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/main/Hy-MT2-7B-Q4_K_M.gguf",
             4624648896, "license.apache", "mt"),
+        // 7B와 같은 hunyuan-dense 구조 — 번역 전용 모델 중 메모리가 가장 적다 (실행 약 2GB)
+        new ModelInfo("hy-mt2-1.8b", "Hy-MT2 1.8B",
+            "Hy-MT2-1.8B-Q4_K_M.gguf",
+            "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf",
+            1133080448, "license.apache", "mt"),
         new ModelInfo("qwen3-4b-instruct-2507", "Qwen3 4B Instruct",
             "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",

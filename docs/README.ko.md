@@ -40,6 +40,7 @@ GPU가 없어도 동작하지만 눈에 띄게 느립니다. 모델별 실행 �
 | 모델 | 다운로드 | 실행 중 RAM/VRAM |
 |---|---|---|
 | HyperCLOVA X SEED 1.5B | 1.1 GB | 약 2 GB |
+| Hy-MT2 1.8B | 1.1 GB | 약 2 GB |
 | EXAONE 3.5 2.4B | 1.6 GB | 약 2.5 GB |
 | Qwen3 4B / Qwen3.5 4B | 2.5–2.7 GB | 약 4 GB |
 | Hy-MT2 7B | 4.6 GB | 약 6 GB |
@@ -56,11 +57,14 @@ GPU 드라이버를 업데이트한 뒤에는 설정 → 번역 엔진의 **GPU 
 ## 모델
 
 모든 모델은 4비트 GGUF(Q4_K_M)로 실행됩니다. 설정 → 번역 엔진에서 고릅니다.
+샘플링 값과 프롬프트 방식은 각 모델 카드의 권장값을 바탕으로 모델마다 자동 적용됩니다
+(이름이 맞으면 내 GGUF 파일·외부 서버 모델도 같습니다).
 
 | 모델 | 이런 경우에 | 비고 |
 |---|---|---|
 | **Qwen3.5 4B** (기본) | 범용, 가장 넓은 언어 지원 | "201개 언어 및 방언" 지원 ([Qwen](https://huggingface.co/Qwen/Qwen3.5-4B)). Apache 2.0 |
 | **Hy-MT2 7B** | 최고 번역 품질 | Tencent 번역 전용 모델, "33개 언어 간 번역" ([Hy-MT2](https://huggingface.co/tencent/Hy-MT2-7B)). Apache 2.0 |
+| **Hy-MT2 1.8B** | 적은 메모리로 번역 품질 | Hy-MT2 소형판, 같은 33개 언어. Tencent 평가에서 WMT25·실사용 문장 기준 Gemma 4 E4B보다 우수 ([Hy-MT2](https://huggingface.co/tencent/Hy-MT2-1.8B)). Apache 2.0 |
 | **Gemma 4 E4B** | 높은 범용 품질 | Google, "140개 이상 언어", 유효 파라미터 4.5B ([Gemma 4](https://huggingface.co/google/gemma-4-E4B-it)). Apache 2.0 |
 | **Qwen3 4B Instruct** | Qwen3.5 대안 | 이전 세대 Qwen ([Qwen](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)). Apache 2.0 |
 | **EXAONE 3.5 2.4B** | 저사양 PC에서 한↔영 | LG AI연구원, "영어·한국어" 이중 언어 ([EXAONE](https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct)). **비상업 라이선스** |
