@@ -42,6 +42,7 @@ counting the model file plus the default 8K context:
 | Model | Download | RAM/VRAM while running |
 |---|---|---|
 | HyperCLOVA X SEED 1.5B | 1.1 GB | ~2 GB |
+| Hy-MT2 1.8B | 1.1 GB | ~2 GB |
 | EXAONE 3.5 2.4B | 1.6 GB | ~2.5 GB |
 | Qwen3 4B / Qwen3.5 4B | 2.5–2.7 GB | ~4 GB |
 | Hy-MT2 7B | 4.6 GB | ~6 GB |
@@ -65,6 +66,7 @@ recommendations (the same applies to your own GGUF and external-server models wi
 |---|---|---|
 | **Qwen3.5 4B** (default) | General use, widest language coverage | Supports "201 languages and dialects" ([Qwen](https://huggingface.co/Qwen/Qwen3.5-4B)). Apache 2.0 |
 | **Hy-MT2 7B** | Highest translation quality | Tencent's dedicated translation model, "translation among 33 languages" ([Hy-MT2](https://huggingface.co/tencent/Hy-MT2-7B)). Apache 2.0 |
+| **Hy-MT2 1.8B** | Translation quality on low memory | Smaller Hy-MT2, same 33 languages. Tencent reports it beats Gemma 4 E4B on WMT25 and real-world text ([Hy-MT2](https://huggingface.co/tencent/Hy-MT2-1.8B)). Apache 2.0 |
 | **Gemma 4 E4B** | Strong general quality | Google, "over 140 languages", 4.5B effective parameters ([Gemma 4](https://huggingface.co/google/gemma-4-E4B-it)). Apache 2.0 |
 | **Qwen3 4B Instruct** | Alternative to Qwen3.5 | Previous Qwen generation ([Qwen](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)). Apache 2.0 |
 | **EXAONE 3.5 2.4B** | Korean ↔ English on smaller PCs | LG AI Research, bilingual "English and Korean" ([EXAONE](https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct)). **Non-commercial license** |
