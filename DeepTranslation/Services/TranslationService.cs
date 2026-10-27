@@ -96,18 +96,18 @@ public sealed class TranslationService
             // 번역문은 원문 추정 토큰의 약 2.5배 이내 — 여유를 두고 4배+256으로 끊는다.
             // 사용자 GGUF·외부 서버는 thinking 모델일 수 있어(생각 토큰도 상한에 포함) 두지 않는다.
             int? maxTokens = embeddedModel is { IsCustom: false } ? LanguageMaps.EstimateTokens(text) * 4 + 256 : null;
-            // Hy-MT2는 시스템 프롬프트의 대상 언어 지시를 무시하고 원문 언어로 되받아쓴다(공식 문서: 기본 system_prompt 없음,
-            // 지시는 사용자 턴). 공식 "Default Translation" 지시문을 원문 앞에 붙여야 대상 언어를 따른다.
             LmStudioException? lastError = null;
             foreach (var model in candidates)
             {
                 ct.ThrowIfCancellationRequested();
-                // 외부 서버·Ollama("dt-" 접두)에서도 모델명으로 판별한다.
-                // 시스템 프롬프트를 같이 보내면 영어 단어가 섞인 한국어 원문을 "이미 영어"로 보고 원문을 되받아쓰므로
-                // Hy-MT2에는 시스템 프롬프트를 보내지 않는다(용어집만 지시문에 덧붙인다).
-                bool hyMt = model.Contains("hy-mt2", StringComparison.OrdinalIgnoreCase);
-                string userText = hyMt ? LanguageMaps.BuildHyMtPrompt(targetEnglish, settings.Glossary, text) : text;
-                string sysText = hyMt ? "" : systemPrompt;
+                // 모델별 샘플링·프롬프트 방식 (외부 서버·Ollama "dt-" 이름도 모델명으로 판별). 모르는 모델은 설정 온도만 보낸다.
+                var profile = ModelProfile.For(model) ?? new ModelProfile(settings.Temperature);
+                // Hy-MT2는 시스템 프롬프트의 대상 언어 지시를 무시하고 원문 언어로 되받아쓴다(공식 문서: 기본 system_prompt 없음,
+                // 지시는 사용자 턴). 영어 단어가 섞인 한국어 원문을 "이미 영어"로 보기도 하므로 공식 지시문만 사용자 턴에 보낸다.
+                string userText = profile.UserTurnPrompt ? LanguageMaps.BuildHyMtPrompt(targetEnglish, settings.Glossary, text) : text;
+                string sysText = profile.UserTurnPrompt ? ""
+                    : profile.SystemPreamble.Length > 0 ? profile.SystemPreamble + "\n\n" + systemPrompt
+                    : systemPrompt;
                 var raw = new StringBuilder();
                 var marker = new MarkerFilter();
                 var sw = Stopwatch.StartNew();
@@ -115,7 +115,7 @@ public sealed class TranslationService
                 try
                 {
                     await _client.StreamChatAsync(serverUrl, model, sysText, userText,
-                        settings.Temperature,
+                        profile,
                         delta =>
                         {
                             raw.Append(delta);

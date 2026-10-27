@@ -147,7 +147,7 @@ public sealed class LmStudioClient
 
     /// <summary>스트리밍 채팅 완성 요청. 토큰이 도착할 때마다 onDelta를 호출한다.</summary>
     public async Task StreamChatAsync(string baseUrl, string model, string systemPrompt, string userText,
-        double temperature, Action<string> onDelta, CancellationToken ct, string? apiKey = null, int? maxTokens = null)
+        ModelProfile sampling, Action<string> onDelta, CancellationToken ct, string? apiKey = null, int? maxTokens = null)
     {
         string root = NormalizeBaseUrl(baseUrl);
         var messages = new JsonArray();
@@ -157,9 +157,14 @@ public sealed class LmStudioClient
         {
             ["model"] = model,
             ["messages"] = messages,
-            ["temperature"] = temperature,
+            ["temperature"] = sampling.Temperature,
             ["stream"] = true
         };
+        // llama.cpp 이름(top_k·min_p·repeat_penalty)은 llama-server·LM Studio가 받는다. 모르는 서버는 보통 무시한다
+        if (sampling.TopP is { } topP) payload["top_p"] = topP;
+        if (sampling.TopK is { } topK) payload["top_k"] = topK;
+        if (sampling.MinP is { } minP) payload["min_p"] = minP;
+        if (sampling.RepeatPenalty is { } repeat) payload["repeat_penalty"] = repeat;
         if (maxTokens is { } max) payload["max_tokens"] = max;
 
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{root}/v1/chat/completions")

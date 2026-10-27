@@ -58,6 +58,8 @@ If a GPU is not available, it falls back to CPU. After a GPU driver update, use 
 ## Models
 
 All models run as 4-bit GGUF (Q4_K_M) files. Pick one in Settings → Engine.
+Sampling and prompt format are tuned per model automatically, starting from each model card's
+recommendations (the same applies to your own GGUF and external-server models with a matching name).
 
 | Model | Best for | Notes |
 |---|---|---|
